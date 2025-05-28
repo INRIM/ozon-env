@@ -197,10 +197,10 @@ async def test_test_form_1_init_data():
     assert test_form_1.is_error() is False
     assert test_form_1.birthdate == iso8601.parse_date(
         "1987-12-17T12:00:00+02:00"
-    )
-    assert test_form_1.appointmentDateTime1 == parse(defaultdt)
+    ).isoformat()
+    assert test_form_1.appointmentDateTime1 == defaultdt
     dictres = test_form_1.model_dump()
-    assert dictres['appointmentDateTime1'] == ''
+    assert dictres['appointmentDateTime1'] == defaultdt
     await env.close_env()
 
 
@@ -222,7 +222,7 @@ async def test_test_form_1_insert_ok():
     assert test_form_1.get("rec_name") == "first_form"
     assert test_form_1.get('birthdate') == iso8601.parse_date(
         "1987-12-17T12:00:00+02:00"
-    )
+    ).isoformat()
     assert test_form_1.get('data_value.birthdate') == "17/12/1987"
 
     test_form_1_us = await test_form_1_model.upsert(data)
@@ -307,9 +307,23 @@ async def test_test_form_1_update_record():
     data['birthdate'] = '1987-12-18T12:00:00'
     test_form_1_upd = await test_form_1_model.upsert(data)
     assert test_form_1_upd.is_error() is False
-    assert test_form_1_upd.get('birthdate') == parse('1987-12-18T12:00:00')
-    assert test_form_1_upd.get('appointmentDateTime') == parse(
-        '2022-05-25T11:30:00'
-    )
+    assert test_form_1_upd.get('birthdate') == '1987-12-18T12:00:00'
+    assert test_form_1_upd.get('appointmentDateTime') == iso8601.parse_date(
+        "2022-05-25T13:30:00+02:00"
+    ).isoformat()
     assert test_form_1_upd.get('data_value.birthdate') == "18/12/1987"
+    await env.close_env()
+
+async def test_test_form_1_update_record_op_failure():
+    data = await readfilejson('data', 'test_form_1_formio_data.json')
+    env = OzonEnv()
+    await env.init_env()
+    env.params = {"current_session_token": "BA6BA930"}
+    await env.session_app()
+    test_form_1_model = await env.add_model('test_form_1')
+    data['howManySeats'] = -1
+    test_form_1_upd = await test_form_1_model.upsert(data)
+    assert test_form_1_upd is None
+    assert test_form_1_model.is_error() is True
+    assert "OperationFailure Error" is test_form_1_model.status.msg
     await env.close_env()

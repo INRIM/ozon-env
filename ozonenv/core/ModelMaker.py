@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import List, Any
 
 from json_logic import jsonLogic
-from pydantic import create_model
+from pydantic import create_model, Field
 
 from ozonenv.core.BaseModels import BasicModel, BaseModel, MainModel, defaultdt
 from ozonenv.core.utils import (
@@ -57,13 +57,16 @@ class Component:
         self.i18n = kwargs.get("i18n", {})
         self.clean = re.compile("<.*?>")
         self.resources = kwargs.get("resources", [])
-        self.defaultValue = self.raw.get("defaultValue")
-        self._value = None
         self.input_type = kwargs.get("input_type", str)
+        self.input_defaultv = kwargs.get("defaultv", False)
+        self.defaultValue = self.raw.get("defaultValue", self.input_defaultv)
+        self._value = None
         self.nested = kwargs.get("nested", [])
         self.cfg = {}
         self.index = 0
         self.iindex = 0
+        self.pfield_cfg = {"default": self.defaultValue}
+        self.pmodel_cfg = [self.input_type]
 
     @property
     def value(self):
@@ -259,7 +262,7 @@ class Component:
         self.cfg["datetime"] = False
         self.cfg["min"] = False
         self.cfg["max"] = False
-        if self.raw.get("type") == "datetime":
+        if self.type == "datetime":
             enableDateInCfg = "enableDate" in self.raw
             self.cfg["time"] = self.raw.get("enableTime", False)
             self.cfg["date"] = self.raw.get("enableDate", False)
@@ -279,18 +282,33 @@ class Component:
                 self.cfg["transform"] = {"type": "datetime"}
             self.cfg["min"] = self.raw["widget"]["minDate"]
             self.cfg["max"] = self.raw["widget"]["maxDate"]
-        if self.raw.get("requireDecimal") is True:
-            self.cfg["mask"] = self.raw.get("displayMask", "decimal")
-            self.cfg["min"] = self.validate.get("min")
-            self.cfg["max"] = self.validate.get("max")
-            self.cfg["delimiter"] = self.raw.get("delimiter", ",")
-            self.cfg["dp"] = self.raw.get("decimalLimit", 2)
-            self.cfg["transform"] = {
-                "type": "float",
-                "dp": self.cfg["dp"],
-                "mask": self.cfg["mask"],
-                "dps": self.cfg["delimiter"],
-            }
+        elif self.type == 'number':
+            self.cfg["min"] = self.validate.get("min", False)
+            self.cfg["max"] = self.validate.get("max", False)
+            if self.raw.get("requireDecimal") is True:
+                self.cfg["mask"] = self.raw.get("displayMask", "decimal")
+                self.cfg["delimiter"] = self.raw.get("delimiter", ",")
+                self.cfg["dp"] = self.raw.get("decimalLimit", 2)
+                self.cfg["transform"] = {
+                    "type": "float",
+                    "dp": self.cfg["dp"],
+                    "mask": self.cfg["mask"],
+                    "dps": self.cfg["delimiter"],
+                }
+
+    def make_pydantic_field(self):
+        self.pfield_cfg.update({'title': self.label})
+        if self.cfg["min"]:
+            self.pfield_cfg.update({'ge': self.cfg["min"]})
+        if self.cfg["max"]:
+            self.pfield_cfg.update({'le': self.cfg["max"]})
+        # if self.cfg["required"]:
+        #     self.pfield_cfg.update({'required': self.cfg["required"]})
+        self.pmodel_cfg.append(Field(**self.pfield_cfg))
+        res = tuple(self.pmodel_cfg)
+        if self.key == "howManySeats":
+            print(f"howManySeats field config {res}")
+        return res
 
     def aval_conditional(self):
         if self.raw.get("conditional").get("json"):
@@ -979,13 +997,21 @@ class FormioModelMaker(BaseModelMaker):
         if self.parent_builder:
             builder = self.parent_builder
         if comp.get("type") == "select":
-            field = selectComponent(comp, builder, input_type=compo_todo[0])
+            field = selectComponent(
+                comp, builder, input_type=compo_todo[0], defaultv=compo_todo[1]
+            )
         elif comp.get("type") == "survey":
-            field = surveyComponent(comp, builder, input_type=compo_todo[0])
+            field = surveyComponent(
+                comp, builder, input_type=compo_todo[0], defaultv=compo_todo[1]
+            )
         elif comp.get("type") == "datetime":
-            field = Component(comp, builder, input_type=str)
+            field = Component(
+                comp, builder, input_type=str, defaultv=compo_todo[1]
+            )
         else:
-            field = Component(comp, builder, input_type=compo_todo[0])
+            field = Component(
+                comp, builder, input_type=compo_todo[0], defaultv=compo_todo[1]
+            )
         field.update_config()
         field.parent = self.parent
         if field.required:
@@ -1000,10 +1026,10 @@ class FormioModelMaker(BaseModelMaker):
         if field.transform:
             self.tranform_data_value[field.key] = field.transform.copy()
         if field.limit_values:
-            self.fields_limit_value = field.limit_values.copy()
+            self.fields_limit_value[field.key] = field.limit_values.copy()
         if field.defaultValue:
             compo_todo[1] = field.defaultValue
-        self.components[comp.get("key")] = tuple(compo_todo)
+        self.components[comp.get("key")] = field.make_pydantic_field()
         self.complete_component(field)
 
     def add_textfield(self, comp):

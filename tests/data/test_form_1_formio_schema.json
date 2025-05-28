@@ -353,7 +353,7 @@
               "id": "eszvmi3"
             },
             {
-              "label": "Appointment Date / Time àè",
+              "label": "Appointment Date / Time",
               "tableView": false,
               "enableMinDateInput": false,
               "datePicker": {
@@ -714,7 +714,7 @@
                 "strictDateValidation": false,
                 "multiple": false,
                 "unique": false,
-                "min": "",
+                "min": 1,
                 "max": "",
                 "step": "any",
                 "integer": ""

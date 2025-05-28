@@ -453,6 +453,8 @@ class OzonOrm:
 
     async def make_local_model(self, mod, version):
         jdata = mod.mm.model.model_json_schema()
+        if mod.name == "test_form_1":
+            print(jdata)
         async with aiofiles.open(
             f"/tmp/{mod.name}.json", "w+", encoding="utf-8"
         ) as mod_file:
