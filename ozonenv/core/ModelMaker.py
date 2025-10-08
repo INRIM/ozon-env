@@ -649,6 +649,8 @@ class surveyComponent(Component):
 
 
 class BaseModelMaker:
+    _model_cache = {}
+
     def __init__(self, model_name: str, fields_parser: dict = None):
         if not fields_parser:
             fields_parser = {}
@@ -738,6 +740,11 @@ class BaseModelMaker:
             "list": list,
             "date": datetime,
         }
+
+    @property
+    def related_fields_logic(self):
+        """Alias con spelling corretto; mantiene retrocompatibilità."""
+        return getattr(self, 'realted_fields_logic', {})
 
     def get_field_value(self, v):
         type_def = self.type_def
@@ -1000,7 +1007,9 @@ class FormioModelMaker(BaseModelMaker):
         if field.transform:
             self.tranform_data_value[field.key] = field.transform.copy()
         if field.limit_values:
-            self.fields_limit_value = field.limit_values.copy()
+            self.fields_limit_value[field.key] = copy.deepcopy(
+                field.limit_values
+            )
         if field.defaultValue:
             compo_todo[1] = field.defaultValue
         self.components[comp.get("key")] = tuple(compo_todo)
@@ -1017,6 +1026,10 @@ class FormioModelMaker(BaseModelMaker):
     def add_numer_decimal(self, comp):
         compo_todo = self.mapper.get("number_f")[:]
         self.complete_component_field(comp.copy(), compo_todo)
+
+    def add_number_decimal(self, comp):
+        """Alias corretto per add_numer_decimal"""
+        return self.add_numer_decimal(comp)
 
     def add_number(self, comp):
         if comp.get("requireDecimal"):
@@ -1075,10 +1088,31 @@ class FormioModelMaker(BaseModelMaker):
         compo_todo = self.mapper.get("file")[:]
         self.complete_component_field(comp.copy(), compo_todo)
 
+    def _schema_fingerprint(self, payload):
+        try:
+            data = json.dumps(payload, sort_keys=True, default=str).encode()
+            import hashlib
+
+            return hashlib.sha1(data).hexdigest()
+        except Exception as e:
+            logger.warning(f'Fingerprint fallback: {e}')
+            return str(id(payload))
+
     def make_model(self) -> BaseModel:
-        self.model = create_model(
-            self.model_name, __base__=MainModel, **self.components
-        )
+        payload = {
+            "components": self.components,
+            "required": sorted(self.required_fields),
+            "unique": sorted(self.unique_fields),
+        }
+        fp = self._schema_fingerprint(payload)
+        key = (self.model_name, fp)
+        model = self._model_cache.get(key)
+        if model is None:
+            model = create_model(
+                self.model_name, __base__=MainModel, **self.components
+            )
+            self._model_cache[key] = model
+        self.model = model
         logger.debug(f"Make model {self.model_name}... Done")
 
     def eval_columns(self, columns):
@@ -1105,9 +1139,16 @@ class FormioModelMaker(BaseModelMaker):
                     self.eval_component(component.copy())
 
     def make_simple_model(self, fields_def):
-        self.model = create_model(
-            self.model_name, __base__=MainModel, **fields_def
-        )
+        payload = {"fields_def": fields_def}
+        fp = self._schema_fingerprint(payload)
+        key = (self.model_name, fp, 'simple')
+        model = self._model_cache.get(key)
+        if model is None:
+            model = create_model(
+                self.model_name, __base__=MainModel, **fields_def
+            )
+            self._model_cache[key] = model
+        self.model = model
         logger.debug(f"Make model simple {self.model_name}... Done")
 
     def compute_component_field(self, comp):
@@ -1116,7 +1157,7 @@ class FormioModelMaker(BaseModelMaker):
             mtd(comp.copy())
         except Exception as e:
             logger.error(
-                f'Error creation model objec map: {comp.get("type")} \n {e}',
+                f'Error creation model object map: {comp.get("type")} \n {e}',
                 exc_info=True,
             )
 

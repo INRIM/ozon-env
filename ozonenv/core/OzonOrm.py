@@ -3,7 +3,6 @@ import copy
 import importlib
 import json
 import logging
-
 # from ozonenv.core.cache.cache import get_cache
 import os
 import sys
@@ -143,6 +142,7 @@ class OzonEnvBase:
             res = await c_model.update(new_component)
             await self.orm.update_model(schema, component)
         return res
+
 
     def get(self, model_name) -> OzonModelBase:
         return self.models.get(model_name)
@@ -464,6 +464,7 @@ class OzonOrm:
             f" --output-model-type pydantic_v2.BaseModel "
             f" --output-datetime-class datetime "
             f" --use-standard-collections "
+            f" --output-datetime-class datetime "
             f"--base-class ozonenv.core.BaseModels.BasicModel"
         )
         if not res:

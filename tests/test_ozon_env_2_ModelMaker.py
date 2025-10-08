@@ -1,10 +1,9 @@
-import pytest
-from test_common import *
-from ozonenv.core.ModelMaker import ModelMaker, BasicModel, MainModel
 from pydantic._internal._model_construction import ModelMetaclass
 
-# from ozonenv.core.i18n import i18nlocaledir
+from ozonenv.core.ModelMaker import ModelMaker, MainModel
+from test_common import *
 
+# from ozonenv.core.i18n import i18nlocaledir
 pytestmark = pytest.mark.asyncio
 
 
@@ -64,3 +63,4 @@ async def test_make_form_cond_schema():
     d = test_2.instance.get_dict()
     assert d == {'username': 'wrong', 'password': 'incorrect',
                  'secret': 'Secret message', 'rec_name': ''}
+
