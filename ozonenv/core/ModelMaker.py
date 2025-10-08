@@ -12,6 +12,7 @@ from json_logic import jsonLogic
 from pydantic import create_model
 
 from ozonenv.core.BaseModels import BasicModel, BaseModel, MainModel, defaultdt
+from ozonenv.core.DateEngine import DateEngine
 from ozonenv.core.utils import (
     fetch_dict_get_value,
     is_json,
@@ -64,6 +65,7 @@ class Component:
         self.cfg = {}
         self.index = 0
         self.iindex = 0
+        self.dte = DateEngine(TZ=kwargs.get("tz", "Europe/Rome"))
 
     @property
     def value(self):
@@ -705,7 +707,7 @@ class BaseModelMaker:
             "radio": [str, ""],
             "survey": [dict, {}],
             "jsondata": [dict, {}],
-            "datetime": [datetime, defaultdt],
+            "datetime": [datetime, BasicModel.iso_to_utc(defaultdt)],
             "datagrid": [list[dict], []],
             "table": [list[dict], []],
             "form": [list[dict], {}],
@@ -898,7 +900,12 @@ class BaseModelMaker:
 
 
 class FormioModelMaker(BaseModelMaker):
-    def __init__(self, model_name: str, fields_parser: dict = None):
+    def __init__(
+        self,
+        model_name: str,
+        fields_parser: dict = None,
+        tz: str = "Europe/Rome",
+    ):
         super(FormioModelMaker, self).__init__(
             model_name=model_name, fields_parser=fields_parser
         )

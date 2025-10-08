@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ozon-env"
-version = "2.3.00"
+version = "2.4.00"
 homepage = "https://github.com/archetipo/ozon-env"
 description = "Ozon Env API"
 readme = "README.md"

@@ -3,6 +3,7 @@ import copy
 import importlib
 import json
 import logging
+
 # from ozonenv.core.cache.cache import get_cache
 import os
 import sys
@@ -87,6 +88,7 @@ class OzonEnvBase:
         self.is_db_local = True
         self.app_code = self.config_system.get("app_code")
         self.cls_model = cls_model
+        self.default_tz = (os.getenv("TZ", "Europe/Rome"),)
 
     @classmethod
     async def readfilejson(cls, cfg_file):
@@ -142,7 +144,6 @@ class OzonEnvBase:
             res = await c_model.update(new_component)
             await self.orm.update_model(schema, component)
         return res
-
 
     def get(self, model_name) -> OzonModelBase:
         return self.models.get(model_name)

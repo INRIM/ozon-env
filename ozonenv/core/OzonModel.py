@@ -10,7 +10,6 @@ from typing import Any, Union
 import bson
 import pydantic
 import pymongo
-from dateutil.parser import parse
 from pydantic._internal._model_construction import ModelMetaclass
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
@@ -25,6 +24,7 @@ from ozonenv.core.BaseModels import (
     default_list_metadata_fields_update,
     defaultdt,
 )
+from ozonenv.core.DateEngine import DateEngine
 from ozonenv.core.ModelMaker import ModelMaker
 from ozonenv.core.db.BsonTypes import JsonEncoder
 from ozonenv.core.exceptions import SessionException
@@ -99,7 +99,7 @@ class OzonMBase:
         self.form_disabled = False
         self.no_submit = False
         self.queryformeditable = {}
-
+        self.dte = DateEngine(TZ=self.setting_app.tz)
         self.init_schema_properties()
 
     def init_schema_properties(self):
@@ -121,12 +121,12 @@ class OzonMBase:
                         self.queryformeditable = is_json(v)
 
     async def init_model(self):
-        self.mm = ModelMaker(self.name)
+        self.mm = ModelMaker(self.name, tz=self.setting_app.tz)
         if self.static:
             self.model: BasicModel = self.static
             self.tranform_data_value = self.model.tranform_data_value()
         elif not self.static and not self.virtual:
-            c_maker = ModelMaker("component")
+            c_maker = ModelMaker("component", tz=self.setting_app.tz)
             c_maker.model = Component
             c_maker.new()
             self.mm.from_formio(self.schema)
@@ -172,41 +172,14 @@ class OzonMBase:
         elif cfg["type"] == "str":
             res = str(val)
         elif cfg["type"] == "datetime":
-            res = self._readable_datetime(val)
+            res = self.dte.to_ui(val, dt_type="datetime")
         elif cfg["type"] == "date":
-            res = self._readable_date(val)
+            res = self.dte.to_ui(val, dt_type="date")
         elif cfg["type"] == "float":
             res = self.readable_float(val, dp=cfg["dp"])
         else:
             res = val
         return res
-
-    def _readable_datetime(self, val):
-        if isinstance(val, str):
-            try:
-                g = self.mm.regex_dt.search(val)
-                return parse(g.group(0)).strftime(
-                    self.setting_app.ui_datetime_mask
-                )
-            except Exception:
-                logger.error(f" parsin {g}")
-                return datetime.now()
-                # return parse(g.group(0)).strftime(
-                #     self.setting_app.ui_datetime_mask
-                # )
-                # return (
-                #     iso8601.parse_date(g.group(0))
-                #     .isoformat(timespec="seconds")
-                #     .strftime(self.setting_app.ui_datetime_mask)
-                # )
-        else:
-            return val.strftime(self.setting_app.ui_datetime_mask)
-
-    def _readable_date(self, val):
-        if isinstance(val, str):
-            return parse(val).strftime(self.setting_app.ui_date_mask)
-        else:
-            return val.strftime(self.setting_app.ui_date_mask)
 
     def readable_float(self, val, dp=2, g=True):
         if isinstance(val, str):
@@ -262,7 +235,9 @@ class OzonMBase:
             self.modelr = self.model(**data)
         else:
             self.mm = ModelMaker(
-                self.data_model, fields_parser=self.virtual_fields_parser
+                self.data_model,
+                fields_parser=self.virtual_fields_parser,
+                tz=self.setting_app.tz,
             )
             if self.transform_config:
                 self.tranform_data_value = self.transform_config.copy()
@@ -554,7 +529,7 @@ class OzonModelBase(OzonMBase):
 
             coll = self.db.engine.get_collection(self.data_model)
 
-            record.create_datetime = datetime.now().isoformat()
+            record.create_datetime = record.utc_now
             record = self.set_user_data(record, self.user_session)
             record.list_order = await self.count()
             record.active = True
@@ -654,7 +629,7 @@ class OzonModelBase(OzonMBase):
             if "rec_name" in to_save:
                 to_save.pop("rec_name")
             to_save["update_uid"] = self.orm.user_session.get("user.uid")
-            to_save["update_datetime"] = datetime.now().isoformat()
+            to_save["update_datetime"] = record.utc_now
             await coll.update_one(record.rec_name_domain(), {"$set": to_save})
             return await self.load(record.rec_name_domain())
         except pymongo.errors.DuplicateKeyError as e:
@@ -845,7 +820,9 @@ class OzonModelBase(OzonMBase):
             rec_data = json.loads(
                 json.dumps(rec_dat, cls=JsonEncoder, ensure_ascii=False)
             )
-            agg_mm = ModelMaker(f"{self.data_model}.agg")
+            agg_mm = ModelMaker(
+                f"{self.data_model}.agg", tz=self.setting_app.tz
+            )
             if "_id" in rec_data:
                 rec_data['id'] = rec_data.pop("_id")
             agg_mm.from_data_dict(rec_data)

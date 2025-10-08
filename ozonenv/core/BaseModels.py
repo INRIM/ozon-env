@@ -8,7 +8,7 @@ import logging
 import operator
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import reduce
 from typing import Any
 from typing import Optional
@@ -16,7 +16,7 @@ from typing import TypeVar, Generic, List, Dict
 
 import typing_extensions
 
-# from datetime import datetime
+import datetime as _dt
 from dateutil.parser import parse
 from pydantic import BaseModel, Field, field_serializer
 from typing_extensions import Literal
@@ -27,7 +27,7 @@ from ozonenv.core.db.BsonTypes import BSON_TYPES_ENCODERS, PyObjectId, bson
 IncEx: typing_extensions.TypeAlias = (
     'set[int] | set[str] | dict[int, Any] | ' 'dict[str, Any] | None'
 )
-defaultdt = '1970-01-01T00:00:00'
+defaultdt = '1970-01-01T00:00:00+00:00'
 
 logger = logging.getLogger("asyncio")
 
@@ -342,6 +342,28 @@ class MainModel(BaseModel):
         setattr(self, key, getattr(src, src_key))
         self.data_value[key] = src.data_value[src_key]
 
+    @classmethod
+    def iso_to_utc(cls, date_str) -> datetime:
+        # date_str es: "2025-04-09T00:00:00+02:00" oppure "2025-04-09T00:00:00Z" o con offset
+        # 1. parse ISO
+        dt = datetime.fromisoformat(date_str)
+        # dt è aware se date_str contiene offset, altrimenti naive (attenzione)
+        if dt.tzinfo is None:
+            # interpreta naive come locale dell’app (opzionale)
+            # oppure rigetta l’input
+            dt = datetime.fromisoformat(f"{date_str}+00:00")
+        # 2. converti a UTC
+        dt_utc = dt.astimezone(timezone.utc)
+        return dt_utc
+
+    @classmethod
+    def iso_to_utc_str(cls, date_str: str) -> str:
+        return cls.iso_to_utc(date_str).isoformat()
+
+    @property
+    def utc_now(self) -> datetime:
+        return datetime.now(_dt.UTC)
+
     model_config = {
         "populate_by_name": True,
         "arbitrary_types_allowed": True,
@@ -379,8 +401,8 @@ class CoreModel(MainModel):
     active: bool = True
     demo: bool = False
     childs: List[Dict] = Field(default=[])
-    create_datetime: datetime = Field(default=defaultdt)
-    update_datetime: datetime = Field(default=defaultdt)
+    create_datetime: datetime = Field(default=MainModel.iso_to_utc(defaultdt))
+    update_datetime: datetime = Field(default=MainModel.iso_to_utc(defaultdt))
     status: str = "ok"
     message: str = ""
     res_data: dict = Field(default={})
@@ -639,6 +661,7 @@ class Session(BasicModel):
     action: dict = {}
     server_settings: dict = {}
     record: dict = {}
+    tz: str = "Europe/Rome"
 
     @classmethod
     def get_unique_fields(cls):

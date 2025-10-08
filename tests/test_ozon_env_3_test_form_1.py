@@ -5,7 +5,7 @@ import iso8601
 from dateutil.parser import *
 
 from ozonenv.OzonEnv import OzonEnv
-from ozonenv.core.BaseModels import defaultdt
+from ozonenv.core.BaseModels import defaultdt, CoreModel
 from ozonenv.core.exceptions import SessionException
 from test_common import *
 
@@ -129,7 +129,7 @@ async def test_component_test_form_1_update():
     old_test_form_1_model = env.get('test_form_1')
     old_test_form_1 = await old_test_form_1_model.new()
     assert hasattr(old_test_form_1, "uploadBase64") is False
-    assert hasattr(old_test_form_1, "content") is True
+    assert hasattr(old_test_form_1, "content") is False
     assert hasattr(old_test_form_1, "content1") is True
     data_schema = await readfilejson('data', 'test_form_1_formio_schema.json')
     component = await env.insert_update_component(data_schema)
@@ -195,10 +195,12 @@ async def test_test_form_1_init_data():
 
     test_form_1 = await test_form_1_model.new(data)
     assert test_form_1.is_error() is False
+    assert type(test_form_1.birthdate) == datetime
     assert test_form_1.birthdate == iso8601.parse_date(
-        "1987-12-17T12:00:00+02:00"
+        "1987-12-17T10:00:00+00:00"
     )
-    assert test_form_1.appointmentDateTime1 == parse(defaultdt)
+    assert type(test_form_1.appointmentDateTime1) == datetime
+    assert test_form_1.appointmentDateTime1 == CoreModel.iso_to_utc(defaultdt)
     dictres = test_form_1.model_dump()
     assert dictres['appointmentDateTime1'] == ''
     await env.close_env()
@@ -220,8 +222,8 @@ async def test_test_form_1_insert_ok():
     assert test_form_1.is_error() is False
     assert test_form_1.get("owner_uid") == ""
     assert test_form_1.get("rec_name") == "first_form"
-    assert test_form_1.get('birthdate') == iso8601.parse_date(
-        "1987-12-17T12:00:00+02:00"
+    assert test_form_1.get('birthdate') == parse(
+        "1987-12-17T10:00:00+00:00"
     )
     assert test_form_1.get('data_value.birthdate') == "17/12/1987"
 
@@ -231,7 +233,7 @@ async def test_test_form_1_insert_ok():
         'uid'
     )
     assert test_form_1_us.get("rec_name") == "first_form"
-    assert test_form_1_us.create_datetime.date() == datetime.now().date()
+    assert test_form_1_us.create_datetime.date() == test_form_1_us.utc_now.date()
     await env.close_env()
 
 
@@ -311,5 +313,6 @@ async def test_test_form_1_update_record():
     assert test_form_1_upd.get('appointmentDateTime') == parse(
         '2022-05-25T11:30:00'
     )
+    assert test_form_1_upd.get('data_value.appointmentDateTime') == "25/05/2022 13:30:00"
     assert test_form_1_upd.get('data_value.birthdate') == "18/12/1987"
     await env.close_env()
