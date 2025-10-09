@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import List, Any
 
 from json_logic import jsonLogic
-from pydantic import create_model, AwareDatetime
+from pydantic import create_model, AwareDatetime, Field
 
 from ozonenv.core.BaseModels import BasicModel, BaseModel, MainModel, defaultdt
 from ozonenv.core.DateEngine import DateEngine
@@ -707,7 +707,7 @@ class BaseModelMaker:
             "radio": [str, ""],
             "survey": [dict, {}],
             "jsondata": [dict, {}],
-            "datetime": [AwareDatetime, BasicModel.iso_to_utc(defaultdt)],
+            "datetime": [AwareDatetime, lambda: iso_to_utc(defaultdt)],
             "datagrid": [list[dict], []],
             "table": [list[dict], []],
             "form": [list[dict], {}],
