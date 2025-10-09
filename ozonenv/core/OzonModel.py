@@ -4,7 +4,7 @@ import locale
 import logging
 import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Any, Union
 
 import bson
@@ -99,7 +99,8 @@ class OzonMBase:
         self.form_disabled = False
         self.no_submit = False
         self.queryformeditable = {}
-        self.dte = DateEngine(TZ=self.setting_app.tz)
+        self.tz = self.setting_app.tz
+        self.dte = DateEngine(TZ=self.tz)
         self.init_schema_properties()
 
     def init_schema_properties(self):
@@ -167,15 +168,17 @@ class OzonMBase:
                 return type_def.get(rgx.lastgroup)
 
     def make_data_value(self, val, cfg):
-        if cfg["type"] == "int":
+        if not val:
+            return val
+        if cfg["type"] == int:
             res = int(val)
-        elif cfg["type"] == "str":
+        elif cfg["type"] == str:
             res = str(val)
-        elif cfg["type"] == "datetime":
+        elif cfg["type"] == datetime:
             res = self.dte.to_ui(val, dt_type="datetime")
-        elif cfg["type"] == "date":
+        elif cfg["type"] == date:
             res = self.dte.to_ui(val, dt_type="date")
-        elif cfg["type"] == "float":
+        elif cfg["type"] == float:
             res = self.readable_float(val, dp=cfg["dp"])
         else:
             res = val
@@ -227,7 +230,13 @@ class OzonMBase:
     def decode_datetime(self, data):
         if self.name not in ["component", "session"]:
             # cleaner: BasicModel = self.model(**{})
-            data = self.model.compute_datetime_fields(data, '', defaultdt)
+            defaut_dt = CoreModel.iso_to_utc(defaultdt)
+            data = self.model.compute_datetime_fields(
+                data,
+                '',
+                defaut_dt,
+                self.dte.to_ui(defaut_dt, dt_type="datetime"),
+            )
         return data
 
     def load_data(self, data):
@@ -414,8 +423,9 @@ class OzonModelBase(OzonMBase):
         if not data and rec_name or rec_name and self.virtual:
             if not self.is_session_model:
                 data["rec_name"] = rec_name
+        data = self.model.normalize_datetime_fields(data)
         if not self.virtual:
-            data = self.decode_datetime(data)
+            # data = self.decode_datetime(data)
             data = self._make_from_dict(
                 copy.deepcopy(data), data_value=data_value
             )
@@ -533,9 +543,14 @@ class OzonModelBase(OzonMBase):
             record = self.set_user_data(record, self.user_session)
             record.list_order = await self.count()
             record.active = True
-            to_save = self._make_from_dict(
-                record.get_dict(compute_datetime=False)
-            )
+            d_record = record.get_dict(compute_datetime=False)
+            print("-" * 50)
+            print(f"d_record: {d_record}")
+            print("-" * 50)
+            to_save = self._make_from_dict(d_record)
+            print("/" * 50)
+            print(f"to_save: {to_save}")
+            print("/" * 50)
             if "_id" not in to_save:
                 to_save['_id'] = bson.ObjectId(to_save['id'])
             result = None

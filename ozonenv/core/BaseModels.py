@@ -18,7 +18,13 @@ import typing_extensions
 
 import datetime as _dt
 from dateutil.parser import parse
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import (
+    BaseModel,
+    Field,
+    field_serializer,
+    AwareDatetime,
+    field_validator,
+)
 from typing_extensions import Literal
 
 import ozonenv
@@ -172,15 +178,6 @@ class DbViewModel(BaseModel):
 
 class MainModel(BaseModel):
 
-    # @model_validator(mode="before")
-    # def handle_naive_datetime(cls, values):
-    #     for field, value in values.items():
-    #         if isinstance(value, datetime) and value.tzinfo is None:
-    #             # If the datetime is naive, leave it or modify it here (set UTC timezone if needed)
-    #             # Uncomment below if you want to make the naive datetime timezone-aware (UTC)
-    #             # values[field] = value.replace(tzinfo=timezone.utc)
-    #             values[field]
-
     @classmethod
     def str_name(cls, *args, **kwargs):
         return cls.model_json_schema(*args, **kwargs).get("title", "").lower()
@@ -204,8 +201,12 @@ class MainModel(BaseModel):
                 ckey = compo['key']
                 if data.get(ckey, set_as) == check:
                     data[ckey] = set_as
-                if data.get('data_value', {}).get(ckey, set_as) == check:
-                    data['data_value'][ckey] = set_as
+                    if data.get('data_value', {}).get(ckey, set_as) == check:
+                        data['data_value'][ckey] = set_as
+                elif not isinstance(data.get(ckey, set_as), datetime):
+                    data[ckey] = set_as
+                    if data.get('data_value', {}).get(ckey, set_as) == check:
+                        data['data_value'][ckey] = set_as
         return data
 
     def model_dump(
@@ -364,6 +365,53 @@ class MainModel(BaseModel):
     def utc_now(self) -> datetime:
         return datetime.now(_dt.UTC)
 
+        # === IL METODO RICHIESTO ===
+
+    @classmethod
+    def normalize_datetime_fields(cls, tz: str, dati: dict) -> dict:
+        """
+        Controlla tutti i campi datetime del model:
+          - se il valore è naive, assume che sia in self.tz
+          - lo converte in UTC e aggiorna il dizionario
+        Ritorna il dizionario modificato
+        """
+        tz_base = ZoneInfo(tz)
+
+        for name, field in cls.model_fields.items():
+            if field.annotation in (datetime, AwareDatetime):
+                if name not in dati:
+                    continue
+                raw_value = dati[name]
+
+                if raw_value is None:
+                    continue
+
+                # Parsing robusto
+                if isinstance(raw_value, str):
+                    try:
+                        value = datetime.fromisoformat(raw_value)
+                    except ValueError:
+                        # fallback — accetta solo formati coerenti col tuo sistema
+                        raise ValueError(
+                            f"Formato datetime non valido per campo '{name}': {raw_value}"
+                        )
+                elif isinstance(raw_value, datetime):
+                    value = raw_value
+                else:
+                    continue  # ignora tipi non datetime/stringa
+
+                # Se naive → applica tz base
+                if value.tzinfo is None:
+                    value = value.replace(tzinfo=tz_base)
+
+                # Converte in UTC
+                utc_value = value.astimezone(timezone.utc)
+
+                # Aggiorna il dizionario
+                dati[name] = utc_value
+
+        return dati
+
     model_config = {
         "populate_by_name": True,
         "arbitrary_types_allowed": True,
@@ -401,8 +449,12 @@ class CoreModel(MainModel):
     active: bool = True
     demo: bool = False
     childs: List[Dict] = Field(default=[])
-    create_datetime: datetime = Field(default=MainModel.iso_to_utc(defaultdt))
-    update_datetime: datetime = Field(default=MainModel.iso_to_utc(defaultdt))
+    create_datetime: AwareDatetime = Field(
+        default=MainModel.iso_to_utc(defaultdt)
+    )
+    update_datetime: AwareDatetime = Field(
+        default=MainModel.iso_to_utc(defaultdt)
+    )
     status: str = "ok"
     message: str = ""
     res_data: dict = Field(default={})
@@ -653,7 +705,7 @@ class Session(BasicModel):
     function: str = ""
     sector: Optional[str] = ""
     sector_id: Optional[int] = 0
-    expire_datetime: datetime
+    expire_datetime: AwareDatetime
     user: dict = {}
     app: dict = {}
     apps: dict = {}
@@ -695,7 +747,7 @@ class DictRecord(BaseModel):
             "float": float,
             "dict": dict,
             "list": list,
-            "datetime": datetime,
+            "datetime": AwareDatetime,
         }
         s = v
         if not isinstance(v, str):
@@ -732,7 +784,7 @@ class DictRecord(BaseModel):
             "float": float,
             "dict": dict,
             "list": list,
-            "date": datetime,
+            "date": AwareDatetime,
         }
         s = v
         if not isinstance(v, str):

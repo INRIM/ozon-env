@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import List, Any
 
 from json_logic import jsonLogic
-from pydantic import create_model
+from pydantic import create_model, AwareDatetime
 
 from ozonenv.core.BaseModels import BasicModel, BaseModel, MainModel, defaultdt
 from ozonenv.core.DateEngine import DateEngine
@@ -707,7 +707,7 @@ class BaseModelMaker:
             "radio": [str, ""],
             "survey": [dict, {}],
             "jsondata": [dict, {}],
-            "datetime": [datetime, BasicModel.iso_to_utc(defaultdt)],
+            "datetime": [AwareDatetime, BasicModel.iso_to_utc(defaultdt)],
             "datagrid": [list[dict], []],
             "table": [list[dict], []],
             "form": [list[dict], {}],
@@ -740,7 +740,7 @@ class BaseModelMaker:
             "float": float,
             "dict": dict,
             "list": list,
-            "date": datetime,
+            "date": AwareDatetime,
         }
 
     @property
@@ -806,7 +806,7 @@ class BaseModelMaker:
         )
         dtr = self.regex_dt.search(s)
         if dtr:
-            return datetime
+            return AwareDatetime
         else:
             rgx = regex.search(s)
             if not rgx:
@@ -895,6 +895,7 @@ class BaseModelMaker:
         if data is None:
             data = {}
         payload = json.loads(json.dumps(data))
+
         self.instance = self.model(**payload)
         return self.instance
 
