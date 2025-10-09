@@ -707,7 +707,7 @@ class BaseModelMaker:
             "radio": [str, ""],
             "survey": [dict, {}],
             "jsondata": [dict, {}],
-            "datetime": [datetime, BasicModel.iso_to_utc(defaultdt)],
+            "datetime": [datetime, lambda: iso_to_utc(defaultdt)],
             "datagrid": [list[dict], []],
             "table": [list[dict], []],
             "form": [list[dict], {}],
