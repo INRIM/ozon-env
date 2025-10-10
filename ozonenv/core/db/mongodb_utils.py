@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from pymongo.collection import Collection
 from pymongo.typings import _DocumentType
 from pymongo.write_concern import WriteConcern
+from datetime import timezone
 
 
 logger = logging.getLogger("asyncio")
@@ -34,16 +35,21 @@ async def connect_to_mongo(settings: DbSettings):
         db.client = AsyncIOMotorClient(
             mongocfg,
             replicaset=settings.mongo_replica,
-            connectTimeoutMS=30000, socketTimeoutMS=None,
+            connectTimeoutMS=30000,
+            socketTimeoutMS=None,
             maxIdleTimeMS=10000,
-            minPoolSize=20)
+            minPoolSize=20,
+            tz_aware=True,
+            tzinfo=timezone.utc)
     else:
         db.client = AsyncIOMotorClient(
             mongocfg,
             connectTimeoutMS=30000,
             maxIdleTimeMS=10000,
             socketTimeoutMS=None,
-            minPoolSize=20)
+            minPoolSize=20,
+            tz_aware=True,
+            tzinfo=timezone.utc)
     write_concern = WriteConcern(
         w="majority",  # Conferma da majority dei nodi
         j=True,  # Attendere il journal

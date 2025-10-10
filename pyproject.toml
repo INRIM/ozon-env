@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ozon-env"
-version = "2.4.01"
+version = "3.0.0"
 homepage = "https://github.com/archetipo/ozon-env"
 description = "Ozon Env API"
 readme = "README.md"
@@ -14,7 +14,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     'Programming Language :: Python :: 3',
     'Programming Language :: Python :: 3 :: Only',
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",

@@ -8,6 +8,7 @@ from ozonenv.core.db.mongodb_utils import (
     AsyncIOMotorCollection
 )
 from test_common import *
+from datetime import timedelta
 
 pytestmark = pytest.mark.asyncio
 
@@ -89,8 +90,7 @@ async def test_make_app_session():
     assert res.fail is False
     assert len(env.models) == 4
     assert env.orm.user_session.get('uid') == "admin"
-    assert env.orm.user_session.get('create_datetime') == parse(
-        "2022-08-05T05:10:02")
+    assert env.orm.user_session.get('create_datetime') > BasicModel.utc_now() - timedelta(seconds=2)
     assert env.orm.user_session.active is True
     assert env.orm.user_session.is_to_delete() is False
     assert env.orm.user_session.is_error() is False

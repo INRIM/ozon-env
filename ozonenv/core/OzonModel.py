@@ -4,12 +4,14 @@ import locale
 import logging
 import re
 import uuid
-from datetime import datetime, timedelta, date
-from typing import Any, Union
+from datetime import datetime, timedelta
+from typing import Any, Union, Optional
 
 import bson
 import pydantic
 import pymongo
+from dateutil.parser import parse
+from pydantic import AwareDatetime
 from pydantic._internal._model_construction import ModelMetaclass
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
@@ -143,42 +145,58 @@ class OzonMBase:
             "date": datetime,
         }
         s = v
+        if type(v) in [dict, list]:
+            return type(v)
+
         if not isinstance(v, str):
             s = str(v)
+
         regex = re.compile(
             r"(?P<dict>\{[^{}]+\})|(?P<list>\[[^]]+\])|(?P<float>\d*\.\d+)"
             r"|(?P<int>\d+)|(?P<string>[a-zA-Z]+)"
         )
-        regex_dt = re.compile(r"(\d{4}-\d{2}-\d{2})[A-Z]+(\d{2}:\d{2}:\d{2})")
-        dtr = regex_dt.search(s)
-        if dtr:
-            return datetime
-        else:
-            rgx = regex.search(s)
-            if not rgx:
-                return str
-            if s in ["false", "true"]:
-                return bool
-            types_d = []
-            for match in regex.finditer(s):
-                types_d.append(match.lastgroup)
-            if len(types_d) > 1:
-                return str
-            else:
-                return type_def.get(rgx.lastgroup)
+        try:
+            x = int(s)
+            return int
+        except Exception as e:
+            pass
 
-    def make_data_value(self, val, cfg):
+        try:
+            x = float(s)
+            return float
+        except Exception as e:
+            pass
+        if len(s) > 9:
+            try:
+                is_date = parse(s)
+                return datetime
+            except Exception as e:
+                pass
+        rgx = regex.search(s)
+        if not rgx:
+            return str
+        if s in ["false", "true"]:
+            return bool
+        types_d = []
+        for match in regex.finditer(s):
+            types_d.append(match.lastgroup)
+        if len(types_d) > 1:
+            return str
+        else:
+            return type_def.get(rgx.lastgroup)
+
+    def __make_data_value(self, val, cfg):
         if not val:
             return val
-        if cfg["type"] == int:
+        if cfg["type"] == 'int':
             res = int(val)
-        elif cfg["type"] == str:
+        elif cfg["type"] == 'str':
             res = str(val)
-        elif cfg["type"] == datetime:
+        elif cfg["type"] == 'datetime':
             res = self.dte.to_ui(val, dt_type="datetime")
-        elif cfg["type"] == date:
+        elif cfg["type"] == 'date':
             res = self.dte.to_ui(val, dt_type="date")
-        elif cfg["type"] == float:
+        elif cfg["type"] == 'float':
             res = self.readable_float(val, dp=cfg["dp"])
         else:
             res = val
@@ -204,45 +222,68 @@ class OzonMBase:
                         res_dict[k].append(self._make_from_dict(i, data_value))
                     else:
                         res_dict[k].append(i)
-            if "data_value" not in res_dict or not isinstance(res_dict, dict):
+            if "data_value" not in res_dict or not isinstance(
+                res_dict.get("data_value"), dict
+            ):
                 res_dict["data_value"] = {}
             if k in self.tranform_data_value:
-                res_dict["data_value"][k] = self.make_data_value(
+                res_dict["data_value"][k] = self.__make_data_value(
                     v, self.tranform_data_value[k]
                 )
-            elif self._value_type(v) is datetime:
-                res_dict["data_value"][k] = self.make_data_value(
-                    v, {"type": datetime}
-                )
-            elif self._value_type(v) is float:
-                res_dict["data_value"][k] = self.make_data_value(
-                    v, {"type": float, "dp": 2}
-                )
+            elif self._value_type(v) in [datetime, 'datetime']:
+                res_dict["data_value"][k] = self.dte.to_ui(v, "datetime")
+            elif self._value_type(v) in [float, 'float']:
+                res_dict["data_value"][k] = self.readable_float(v, 2)
             else:
                 if k in data_value:
                     res_dict["data_value"][k] = data_value[k]
                 elif k not in res_dict["data_value"]:
                     res_dict["data_value"][k] = v
+            if type(v) is str and self._value_type(v) is datetime:
+                v = self.dte.parse_to_utc_datetime(v)
+
             res_dict[k] = v
 
         return res_dict.copy()
 
-    def decode_datetime(self, data):
-        if self.name not in ["component", "session"]:
-            # cleaner: BasicModel = self.model(**{})
-            defaut_dt = CoreModel.iso_to_utc(defaultdt)
-            data = self.model.compute_datetime_fields(
-                data,
-                '',
-                defaut_dt,
-                self.dte.to_ui(defaut_dt, dt_type="datetime"),
-            )
-        return data
+    def make_data_value(self, dati: dict, pdata_value: dict = None) -> dict:
+        """
+        Controlla tutti i campi datetime del model:
+          - se il valore è naive, assume che sia in self.tz
+          - lo converte in UTC e aggiorna il dizionario
+        Ritorna il dizionario modificato
+        """
+        data_value = {}
+        if pdata_value is not None:
+            data_value = pdata_value.copy()
+        for name, field in self.model.model_fields.items():
+            if name not in dati:
+                continue
+            if field.annotation in (
+                datetime,
+                AwareDatetime,
+                Optional[AwareDatetime],
+            ):
+                data_value[name] = self.dte.to_ui(
+                    dati[name] if dati[name] else defaultdt,
+                    self.tranform_data_value.get(name, {}).get(
+                        "type", "datetime"
+                    ),
+                )
+            elif field.annotation in (float, Optional[float]):
+                data_value[name] = self.readable_float(
+                    dati[name],
+                    self.tranform_data_value.get(name, {}).get("dp", 2),
+                )
+
+        dati["data_value"] = data_value
+        return dati.copy()
 
     def load_data(self, data):
         if not self.virtual:
             self.modelr = self.model(**data)
         else:
+            data = BasicModel.normalize_datetime_fields(self.tz, data)
             self.mm = ModelMaker(
                 self.data_model,
                 fields_parser=self.virtual_fields_parser,
@@ -250,6 +291,7 @@ class OzonMBase:
             )
             if self.transform_config:
                 self.tranform_data_value = self.transform_config.copy()
+            data = self._make_from_dict(copy.deepcopy(data))
             self.mm.from_data_dict(data)
 
             self.modelr = self.mm.new()
@@ -423,17 +465,19 @@ class OzonModelBase(OzonMBase):
         if not data and rec_name or rec_name and self.virtual:
             if not self.is_session_model:
                 data["rec_name"] = rec_name
-        data = self.model.normalize_datetime_fields(data)
+        # data = self.modelr.normalize_datetime_fields(self.tz, data)
         if not self.virtual:
             # data = self.decode_datetime(data)
-            data = self._make_from_dict(
-                copy.deepcopy(data), data_value=data_value
+            data = self.model.normalize_datetime_fields(self.tz, data)
+            data = self.make_data_value(
+                copy.deepcopy(data), pdata_value=data_value
             )
         else:
             if data_value:
                 if "data_value" not in data:
                     data['data_value'] = {}
                 data['data_value'].update(data_value)
+        # data = BasicModel.normalize_datetime_fields(self.tz, data)
         self.virtual_fields_parser = fields_parser.copy()
         self.transform_config = trnf_config.copy()
         self.load_data(data)
@@ -497,9 +541,9 @@ class OzonModelBase(OzonMBase):
 
         exist = await self.by_name(data["rec_name"])
         if not self.virtual:
-            data = self.decode_datetime(data)
-            data = self._make_from_dict(
-                copy.deepcopy(data), data_value=data_value
+            data = self.model.normalize_datetime_fields(self.tz, data)
+            data = self.make_data_value(
+                copy.deepcopy(data), pdata_value=data_value
             )
         else:
             if data_value:
@@ -539,23 +583,21 @@ class OzonModelBase(OzonMBase):
 
             coll = self.db.engine.get_collection(self.data_model)
 
-            record.create_datetime = record.utc_now
+            record.create_datetime = record.utc_now()
             record = self.set_user_data(record, self.user_session)
             record.list_order = await self.count()
             record.active = True
+
             d_record = record.get_dict(compute_datetime=False)
-            print("-" * 50)
-            print(f"d_record: {d_record}")
-            print("-" * 50)
+
             to_save = self._make_from_dict(d_record)
-            print("/" * 50)
-            print(f"to_save: {to_save}")
-            print("/" * 50)
+
             if "_id" not in to_save:
                 to_save['_id'] = bson.ObjectId(to_save['id'])
             result = None
             result_save = await coll.insert_one(to_save)
             if result_save:
+                res = await self.load({"rec_name": to_save['rec_name']})
                 return await self.load({"rec_name": to_save['rec_name']})
             self.error_status(
                 _("Error save  %s ") % str(to_save['rec_name']), to_save
@@ -603,8 +645,8 @@ class OzonModelBase(OzonMBase):
         else:
             self.modelr.rec_name = f"{self.data_model}.{self.modelr.id}"
         self.modelr.list_order = await self.count()
-        self.modelr.create_datetime = datetime.now().isoformat()
-        self.modelr.update_datetime = datetime.now().isoformat()
+        self.modelr.create_datetime = BasicModel.utc_now()
+        self.modelr.update_datetime = BasicModel.utc_now()
         record = await self.new(
             data=self.modelr.get_dict(compute_datetime=False)
         )
@@ -644,7 +686,7 @@ class OzonModelBase(OzonMBase):
             if "rec_name" in to_save:
                 to_save.pop("rec_name")
             to_save["update_uid"] = self.orm.user_session.get("user.uid")
-            to_save["update_datetime"] = record.utc_now
+            to_save["update_datetime"] = record.utc_now()
             await coll.update_one(record.rec_name_domain(), {"$set": to_save})
             return await self.load(record.rec_name_domain())
         except pymongo.errors.DuplicateKeyError as e:

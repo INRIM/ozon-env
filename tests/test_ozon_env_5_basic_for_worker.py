@@ -180,9 +180,8 @@ class MockWorker1(OzonWorkerEnv):
         documento = await self.virtual_doc_model.insert(v_doc)
 
         assert documento.dec_nome == "Test Dec"
-        assert documento.data_value['ammImpEuro'] == locale.format_string(
-            '%.2f', 1446.16, grouping=True
-        )
+        assert type(documento.ammImpEuro) is float
+        assert documento.data_value['ammImpEuro'] == '1.446,16'
         assert documento.anomalia_gestita is False
         assert documento.data_value['dtRegistrazione'] == "24/05/2022"
         doc_bn = await self.p_model.load({"rec_name": documento.rec_name})

@@ -13,17 +13,15 @@ from functools import reduce
 from typing import Any
 from typing import Optional
 from typing import TypeVar, Generic, List, Dict
+from zoneinfo import ZoneInfo
 
 import typing_extensions
-
-import datetime as _dt
 from dateutil.parser import parse
 from pydantic import (
     BaseModel,
     Field,
     field_serializer,
     AwareDatetime,
-    field_validator,
 )
 from typing_extensions import Literal
 
@@ -33,7 +31,7 @@ from ozonenv.core.db.BsonTypes import BSON_TYPES_ENCODERS, PyObjectId, bson
 IncEx: typing_extensions.TypeAlias = (
     'set[int] | set[str] | dict[int, Any] | ' 'dict[str, Any] | None'
 )
-defaultdt = '1970-01-01T00:00:00+00:00'
+defaultdt = '1970-01-01T00:00:00+01:00'
 
 logger = logging.getLogger("asyncio")
 
@@ -167,6 +165,13 @@ export_list_metadata = [
     "owner_mail",
     "sys",
 ]
+
+
+class ISOEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
 
 
 class DbViewModel(BaseModel):
@@ -354,16 +359,20 @@ class MainModel(BaseModel):
             # oppure rigetta l’input
             dt = datetime.fromisoformat(f"{date_str}+00:00")
         # 2. converti a UTC
-        dt_utc = dt.astimezone(timezone.utc)
+        dt_utc = dt.astimezone(ZoneInfo("UTC"))
         return dt_utc
 
     @classmethod
     def iso_to_utc_str(cls, date_str: str) -> str:
         return cls.iso_to_utc(date_str).isoformat()
 
-    @property
-    def utc_now(self) -> datetime:
-        return datetime.now(_dt.UTC)
+    @classmethod
+    def utc_now(cls) -> AwareDatetime:
+        return datetime.now(timezone.utc)
+
+    @classmethod
+    def default_datetime(cls) -> datetime:
+        return cls.iso_to_utc(defaultdt)
 
         # === IL METODO RICHIESTO ===
 
@@ -378,7 +387,11 @@ class MainModel(BaseModel):
         tz_base = ZoneInfo(tz)
 
         for name, field in cls.model_fields.items():
-            if field.annotation in (datetime, AwareDatetime):
+            if field.annotation in (
+                datetime,
+                AwareDatetime,
+                Optional[AwareDatetime],
+            ):
                 if name not in dati:
                     continue
                 raw_value = dati[name]
@@ -392,9 +405,7 @@ class MainModel(BaseModel):
                         value = datetime.fromisoformat(raw_value)
                     except ValueError:
                         # fallback — accetta solo formati coerenti col tuo sistema
-                        raise ValueError(
-                            f"Formato datetime non valido per campo '{name}': {raw_value}"
-                        )
+                        value = BasicModel.default_datetime()
                 elif isinstance(raw_value, datetime):
                     value = raw_value
                 else:
@@ -449,9 +460,7 @@ class CoreModel(MainModel):
     active: bool = True
     demo: bool = False
     childs: List[Dict] = Field(default=[])
-    create_datetime: AwareDatetime = Field(
-        default=MainModel.iso_to_utc(defaultdt)
-    )
+    create_datetime: AwareDatetime = Field(default=MainModel.utc_now())
     update_datetime: AwareDatetime = Field(
         default=MainModel.iso_to_utc(defaultdt)
     )
@@ -705,7 +714,7 @@ class Session(BasicModel):
     function: str = ""
     sector: Optional[str] = ""
     sector_id: Optional[int] = 0
-    expire_datetime: AwareDatetime
+    expire_datetime: datetime
     user: dict = {}
     app: dict = {}
     apps: dict = {}
@@ -747,7 +756,7 @@ class DictRecord(BaseModel):
             "float": float,
             "dict": dict,
             "list": list,
-            "datetime": AwareDatetime,
+            "datetime": datetime,
         }
         s = v
         if not isinstance(v, str):
@@ -784,7 +793,7 @@ class DictRecord(BaseModel):
             "float": float,
             "dict": dict,
             "list": list,
-            "date": AwareDatetime,
+            "date": datetime,
         }
         s = v
         if not isinstance(v, str):

@@ -5,13 +5,19 @@ import copy
 import json
 import logging
 import re
-from datetime import datetime
 from typing import List, Any
 
+from dateutil.parser import parse
 from json_logic import jsonLogic
-from pydantic import create_model, AwareDatetime, Field
+from pydantic import create_model, AwareDatetime
 
-from ozonenv.core.BaseModels import BasicModel, BaseModel, MainModel, defaultdt
+from ozonenv.core.BaseModels import (
+    BasicModel,
+    BaseModel,
+    MainModel,
+    ISOEncoder,
+    defaultdt,
+)
 from ozonenv.core.DateEngine import DateEngine
 from ozonenv.core.utils import (
     fetch_dict_get_value,
@@ -653,7 +659,12 @@ class surveyComponent(Component):
 class BaseModelMaker:
     _model_cache = {}
 
-    def __init__(self, model_name: str, fields_parser: dict = None):
+    def __init__(
+        self,
+        model_name: str,
+        fields_parser: dict = None,
+        tz: str = "Europe/Rome",
+    ):
         if not fields_parser:
             fields_parser = {}
         self.components = {}
@@ -707,7 +718,7 @@ class BaseModelMaker:
             "radio": [str, ""],
             "survey": [dict, {}],
             "jsondata": [dict, {}],
-            "datetime": [AwareDatetime, lambda: iso_to_utc(defaultdt)],
+            "datetime": [AwareDatetime, BasicModel.iso_to_utc(defaultdt)],
             "datagrid": [list[dict], []],
             "table": [list[dict], []],
             "form": [list[dict], {}],
@@ -742,6 +753,7 @@ class BaseModelMaker:
             "list": list,
             "date": AwareDatetime,
         }
+        self.tz = tz
 
     @property
     def related_fields_logic(self):
@@ -798,28 +810,40 @@ class BaseModelMaker:
         s = v
         if not isinstance(v, str):
             s = str(v)
+        try:
+            x = int(s)
+            return int
+        except Exception as e:
+            pass
+        try:
+            x = float(s)
+            return float
+        except Exception as e:
+            pass
+        if len(s) > 9:
+            try:
+                is_date = parse(s)
+                return AwareDatetime
+            except Exception as e:
+                pass
         if s in ["false", "true", "True", "False"]:
             return bool
         regex = re.compile(
             r"(?P<dict>\{[^{}]+\})|(?P<list>\[[^]]+\])|(?P<float>\d*\.\d+)"
             r"|(?P<int>\d+)|(?P<string>[a-zA-Z]+)"
         )
-        dtr = self.regex_dt.search(s)
-        if dtr:
-            return AwareDatetime
+        rgx = regex.search(s)
+        if not rgx:
+            return str
+        if s in ["false", "true", "True", "False"]:
+            return bool
+        types_d = []
+        for match in regex.finditer(s):
+            types_d.append(match.lastgroup)
+        if len(types_d) > 1:
+            return str
         else:
-            rgx = regex.search(s)
-            if not rgx:
-                return str
-            if s in ["false", "true", "True", "False"]:
-                return bool
-            types_d = []
-            for match in regex.finditer(s):
-                types_d.append(match.lastgroup)
-            if len(types_d) > 1:
-                return str
-            else:
-                return type_def.get(rgx.lastgroup)
+            return type_def.get(rgx.lastgroup)
 
     def parse_make_field(self, v, k="") -> tuple[type, Any]:
         if k in self.fields_parser:
@@ -894,7 +918,8 @@ class BaseModelMaker:
     def new(self, data: dict = None):
         if data is None:
             data = {}
-        payload = json.loads(json.dumps(data))
+        data = self.model.normalize_datetime_fields(self.tz, data)
+        payload = json.loads(json.dumps(data, cls=ISOEncoder))
 
         self.instance = self.model(**payload)
         return self.instance

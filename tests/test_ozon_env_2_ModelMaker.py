@@ -10,7 +10,7 @@ pytestmark = pytest.mark.asyncio
 @pytestmark
 async def test_make_form_data():
     data_json = await get_file_data()
-    test_1 = ModelMaker("test_base")
+    test_1 = ModelMaker("test_base", tz="Europe/Rome")
     test_1.from_data_dict(data_json)
     test_1.new()
     assert test_1.model_name == "test_base"
@@ -26,7 +26,7 @@ async def test_make_form_data():
 async def test_make_form_schema():
     schema = await get_formio_schema()
     formio_data_json = await get_formio_data()
-    test_2 = ModelMaker("component")
+    test_2 = ModelMaker("component",tz="Europe/Rome")
     test_2.from_formio(schema)
     assert test_2.model_name == "component"
     assert isinstance(test_2.model, ModelMetaclass) is True
@@ -53,7 +53,7 @@ async def test_make_form_schema():
 async def test_make_form_cond_schema():
     schema = await get_formio_schema_conditional()
     formio_data_json = await get_formio_schema_conditional_data_hide()
-    test_2 = ModelMaker("component")
+    test_2 = ModelMaker("component", tz="Europe/Rome")
     test_2.from_formio(schema)
     assert test_2.model_name == "component"
     test_2.new(formio_data_json)

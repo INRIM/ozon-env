@@ -5,7 +5,6 @@
     "childs": [],
     "codicefiscale": "",
     "cognome": "Test",
-    "create_datetime": "2022-01-03T14:46:39.388561",
     "data_value": {
     },
     "default": false,
@@ -37,7 +36,6 @@
     "token": "BA6BA930",
     "type": "form",
     "uid": "admin",
-    "update_datetime": "2022-06-08T09:24:05.482108",
     "update_uid": "admin",
     "user_function": "user"
   }

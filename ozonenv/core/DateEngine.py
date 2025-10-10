@@ -7,6 +7,8 @@ from collections import namedtuple
 from datetime import date, datetime, timedelta, time
 from zoneinfo import ZoneInfo
 
+from dateutil.parser import parse
+
 try:
     locale.setlocale(locale.LC_ALL, "it_IT")
 except:
@@ -58,6 +60,12 @@ class DateEngine:
     @property
     def todaymax(self) -> datetime:
         return datetime.combine(self._today, time.max)
+
+    def parse_to_utc_datetime(self, dt_str):
+        value = parse(dt_str)
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=ZoneInfo(self.tz))
+        return value.astimezone(ZoneInfo("UTC"))
 
     def year_range(self, year=0, datetime_o=datetime) -> dict:
         if year == 0:
@@ -156,6 +164,8 @@ class DateEngine:
     def to_ui(self, date_obj, dt_type: str = "datetime") -> str:
         if isinstance(date_obj, str):
             return self.format_in_client_tz(date_obj, dt_type)
+        if date_obj.tzinfo is None or date_obj.tzinfo != ZoneInfo(self.tz):
+            date_obj = date_obj.astimezone(ZoneInfo(self.tz))
         if dt_type == "datetime":
             return date_obj.strftime(self.client_datetime_mask)
         else:

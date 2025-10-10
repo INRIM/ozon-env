@@ -55,9 +55,9 @@ async def test_env_data_file_virtual_model():
     assert doc.get('document_type') == 'ordine'
     assert doc.get('stato') == 'caricato'
     assert doc.get('data_value.document_type') == 'Ordine'
-    assert doc.dtRegistrazione == '2022-05-24T00:00:00'
+    assert doc.dtRegistrazione == '2022-05-23 22:00:00+00:00'
     assert doc.get('dg15XVoceCalcolata.1.imponibile') == 1446.16
-    assert doc.to_datetime('dtRegistrazione') == parse('2022-05-24T00:00:00')
+    assert doc.to_datetime('dtRegistrazione') == BasicModel.iso_to_utc('2022-05-23 22:00:00+00:00')
     assert doc.dg15XVoceCalcolata[1].get('aliquota') == 20
 
     doc_not_saved = await virtual_doc_model.insert(doc)
@@ -87,7 +87,7 @@ async def test_component_test_form_1_init():
     component = await env.insert_update_component(data)
     assert component.owner_uid == "admin"
     assert component.rec_name == "test_form_1"
-    assert component.update_datetime == parse("1970-01-01T00:00:00")
+    assert component.update_datetime == BasicModel.default_datetime()
     assert len(component.get('components')) == 10
     assert (
         env.get('test_form_1').schema.get("components")[0].get("key")
@@ -114,7 +114,7 @@ async def test_component_test_form_1_raw_update():
     assert component.owner_uid == "admin"
     component = await env.get('component').update(component)
     assert component.rec_name == "test_form_1"
-    assert not component.update_datetime == parse("1970-01-01T00:00:00")
+    assert not component.update_datetime == BasicModel.default_datetime()
     assert len(component.get('components')) == 11
     await env.close_env()
 
@@ -233,7 +233,7 @@ async def test_test_form_1_insert_ok():
         'uid'
     )
     assert test_form_1_us.get("rec_name") == "first_form"
-    assert test_form_1_us.create_datetime.date() == test_form_1_us.utc_now.date()
+    assert test_form_1_us.create_datetime.date() == test_form_1_us.utc_now().date()
     await env.close_env()
 
 
@@ -306,12 +306,12 @@ async def test_test_form_1_update_record():
     env.params = {"current_session_token": "BA6BA930"}
     await env.session_app()
     test_form_1_model = await env.add_model('test_form_1')
-    data['birthdate'] = '1987-12-18T12:00:00'
+    data['birthdate'] = '1987-12-18T12:00:00+02:00'
     test_form_1_upd = await test_form_1_model.upsert(data)
     assert test_form_1_upd.is_error() is False
-    assert test_form_1_upd.get('birthdate') == parse('1987-12-18T12:00:00')
-    assert test_form_1_upd.get('appointmentDateTime') == parse(
-        '2022-05-25T11:30:00'
+    assert test_form_1_upd.get('birthdate') == BasicModel.iso_to_utc('1987-12-18T10:00:00+00:00')
+    assert test_form_1_upd.get('appointmentDateTime') == BasicModel.iso_to_utc(
+        '2022-05-25T11:30:00+00:00'
     )
     assert test_form_1_upd.get('data_value.appointmentDateTime') == "25/05/2022 13:30:00"
     assert test_form_1_upd.get('data_value.birthdate') == "18/12/1987"
