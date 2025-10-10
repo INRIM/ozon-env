@@ -802,6 +802,9 @@ class OzonModelBase(OzonMBase):
                 if self.virtual:
                     res.append(self.load_data(rec_data))
                 else:
+                    rec_data = self.model.normalize_datetime_fields(
+                        self.tz, rec_data
+                    )
                     res.append(self.model(**rec_data))
         return res
 
