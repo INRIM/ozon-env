@@ -31,7 +31,7 @@ from ozonenv.core.db.BsonTypes import BSON_TYPES_ENCODERS, PyObjectId, bson
 IncEx: typing_extensions.TypeAlias = (
     'set[int] | set[str] | dict[int, Any] | ' 'dict[str, Any] | None'
 )
-defaultdt = '1970-01-01T00:00:00+01:00'
+defaultdt = '1970-01-01T00:00:00+00:00'
 
 logger = logging.getLogger("asyncio")
 
