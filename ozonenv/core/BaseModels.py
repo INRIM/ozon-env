@@ -368,7 +368,7 @@ class MainModel(BaseModel):
 
     @classmethod
     def utc_now(cls) -> AwareDatetime:
-        return datetime.now(timezone.utc)
+        return datetime.now(ZoneInfo("UTC"))
 
     @classmethod
     def default_datetime(cls) -> datetime:
@@ -416,7 +416,7 @@ class MainModel(BaseModel):
                     value = value.replace(tzinfo=tz_base)
 
                 # Converte in UTC
-                utc_value = value.astimezone(timezone.utc)
+                utc_value = value.astimezone(ZoneInfo("UTC"))
 
                 # Aggiorna il dizionario
                 dati[name] = utc_value

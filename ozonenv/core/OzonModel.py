@@ -281,6 +281,7 @@ class OzonMBase:
 
     def load_data(self, data):
         if not self.virtual:
+            data = self.model.normalize_datetime_fields(self.tz, data)
             self.modelr = self.model(**data)
         else:
             data = BasicModel.normalize_datetime_fields(self.tz, data)

@@ -6,6 +6,7 @@ from pymongo.collection import Collection
 from pymongo.typings import _DocumentType
 from pymongo.write_concern import WriteConcern
 from datetime import timezone
+from zoneinfo import ZoneInfo
 
 
 logger = logging.getLogger("asyncio")
@@ -40,7 +41,7 @@ async def connect_to_mongo(settings: DbSettings):
             maxIdleTimeMS=10000,
             minPoolSize=20,
             tz_aware=True,
-            tzinfo=timezone.utc)
+            tzinfo=ZoneInfo("UTC"))
     else:
         db.client = AsyncIOMotorClient(
             mongocfg,
@@ -49,7 +50,7 @@ async def connect_to_mongo(settings: DbSettings):
             socketTimeoutMS=None,
             minPoolSize=20,
             tz_aware=True,
-            tzinfo=timezone.utc)
+            tzinfo=ZoneInfo("UTC"))
     write_concern = WriteConcern(
         w="majority",  # Conferma da majority dei nodi
         j=True,  # Attendere il journal

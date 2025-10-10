@@ -397,13 +397,14 @@
       }
     },
     "childs": [],
+    "create_datetime": "2022-08-05T05:10:02",
     "data_value": {
     },
     "default": true,
     "deleted": 0,
     "demo": false,
     "divisione_uo": "",
-    "expire_datetime": "2222-08-07T05:10:02",
+    "expire_datetime": "2022-08-07T05:10:02",
     "full_name": "",
     "function": "",
     "is_admin": true,
@@ -437,6 +438,7 @@
     "sys": false,
     "token": "BA6BA930",
     "uid": "admin",
+    "update_datetime": "2022-08-05T10:21:45.014436",
     "update_uid": "",
     "use_auth": true,
     "user": {
@@ -446,6 +448,7 @@
       "childs": [],
       "codicefiscale": "",
       "cognome": "Test",
+      "create_datetime": "2022-01-03T14:46:39.388561",
       "data_value": {
       },
       "default": false,
@@ -477,6 +480,7 @@
       "token": "ABCDEFG",
       "type": "form",
       "uid": "admin",
+      "update_datetime": "2022-06-08T09:24:05.482108",
       "update_uid": "admin",
       "user_function": "user"
     },
@@ -484,7 +488,7 @@
     "user_preferences": {
     }
   },
-  {
+    {
     "action": {
     },
     "active": true,
@@ -882,12 +886,14 @@
       }
     },
     "childs": [],
+    "create_datetime": "2022-08-05T05:10:02",
     "data_value": {
     },
     "default": true,
     "deleted": 0,
     "demo": false,
     "divisione_uo": "",
+    "expire_datetime": "2022-08-07T05:10:02",
     "full_name": "",
     "function": "",
     "is_admin": false,
@@ -921,6 +927,7 @@
     "sys": false,
     "token": "PUBLIC",
     "uid": "public",
+    "update_datetime": "2022-08-05T10:21:45.014436",
     "update_uid": "",
     "use_auth": true,
     "user": {
@@ -930,6 +937,7 @@
       "childs": [],
       "codicefiscale": "",
       "cognome": "Test",
+      "create_datetime": "2022-01-03T14:46:39.388561",
       "data_value": {
       },
       "default": false,
@@ -961,12 +969,12 @@
       "token": "ABCDEFG",
       "type": "form",
       "uid": "public",
+      "update_datetime": "2022-06-08T09:24:05.482108",
       "update_uid": "public",
       "user_function": "user"
     },
     "user_function": "",
     "user_preferences": {
-    },
-    "expire_datetime": "2222-08-07T05:10:02"
+    }
   }
 ]
