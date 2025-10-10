@@ -185,7 +185,7 @@ class OzonMBase:
         else:
             return type_def.get(rgx.lastgroup)
 
-    def __make_data_value(self, val, cfg):
+    def parse_data_value(self, val, cfg):
         if not val:
             return val
         if cfg["type"] == 'int':
@@ -227,7 +227,7 @@ class OzonMBase:
             ):
                 res_dict["data_value"] = {}
             if k in self.tranform_data_value:
-                res_dict["data_value"][k] = self.__make_data_value(
+                res_dict["data_value"][k] = self.parse_data_value(
                     v, self.tranform_data_value[k]
                 )
             elif self._value_type(v) in [datetime, 'datetime']:
