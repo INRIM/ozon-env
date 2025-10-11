@@ -492,7 +492,7 @@ class OzonModelBase(OzonMBase):
             # data = self.decode_datetime(data)
             data = self.model.normalize_datetime_fields(self.tz, data)
             data = self.make_data_value(
-                copy.deepcopy(data), pdata_value=data_value
+                copy.deepcopy(data), pdata_value=data.get("data_value", {})
             )
         else:
             if data_value:
@@ -563,7 +563,7 @@ class OzonModelBase(OzonMBase):
         if not self.virtual:
             data = self.model.normalize_datetime_fields(self.tz, data)
             data = self.make_data_value(
-                copy.deepcopy(data), pdata_value=data_value
+                copy.deepcopy(data), pdata_value=data.get("data_value", {})
             )
         else:
             if data_value:
