@@ -48,7 +48,6 @@ class PyObjectId(BsonObjectId):
 
 # Codec
 
-
 class JsonEncoder(json.JSONEncoder):
     """JSON serializer for objects not serializable by default json code"""
 
@@ -63,10 +62,9 @@ class JsonEncoder(json.JSONEncoder):
             return (datetime.datetime.min + o).time().isoformat()
         return super().default(o)
 
+class BsonEncoder(json.JSONEncoder):
+    """JSON serializer for objects not serializable by default json code"""
 
-BSON_TYPES_ENCODERS = {
-    bson.ObjectId: str,
-    bson.decimal128.Decimal128: lambda x: float(x.to_decimal()),
-    # Convert to regular decimal
-    bson.regex.Regex: lambda x: x.pattern,
-}
+    def default(self, o):
+        if isinstance(o, bson.objectid.ObjectId):
+            return str(o)

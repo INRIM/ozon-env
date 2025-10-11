@@ -1,5 +1,4 @@
 import copy
-import json
 import locale
 import logging
 import re
@@ -28,7 +27,6 @@ from ozonenv.core.BaseModels import (
 )
 from ozonenv.core.DateEngine import DateEngine
 from ozonenv.core.ModelMaker import ModelMaker
-from ozonenv.core.db.BsonTypes import JsonEncoder
 from ozonenv.core.exceptions import SessionException
 from ozonenv.core.i18n import _
 from ozonenv.core.utils import is_json
@@ -275,12 +273,36 @@ class OzonMBase:
                     dati[name],
                     self.tranform_data_value.get(name, {}).get("dp", 2),
                 )
+            elif name in self.model.select_fields():
+                select = self.model.select_fields()[name]
+                options = self.model.select_options()[name]
+                if select['src'] == "values":
+                    if not select['multi']:
+                        vals = [
+                            opt['label']
+                            for opt in options
+                            if opt['value'] == dati[name]
+                        ]
+                        val = vals and vals[0] or ''
+                        data_value[name] = val
+
+                    else:
+                        res = []
+                        for i in dati[name]:
+                            vals = [
+                                opt['label']
+                                for opt in options
+                                if opt['value'] == i
+                            ]
+                            vals and res.append(vals[0])
+                        data_value[name] = res
 
         dati["data_value"] = data_value
         return dati.copy()
 
-    def load_data(self, data):
+    def load_data(self, data, in_execution=False):
         if not self.virtual:
+            # if not in_execution:
             data = self.model.normalize_datetime_fields(self.tz, data)
             self.modelr = self.model(**data)
         else:
@@ -466,7 +488,6 @@ class OzonModelBase(OzonMBase):
         if not data and rec_name or rec_name and self.virtual:
             if not self.is_session_model:
                 data["rec_name"] = rec_name
-        # data = self.modelr.normalize_datetime_fields(self.tz, data)
         if not self.virtual:
             # data = self.decode_datetime(data)
             data = self.model.normalize_datetime_fields(self.tz, data)
@@ -478,7 +499,6 @@ class OzonModelBase(OzonMBase):
                 if "data_value" not in data:
                     data['data_value'] = {}
                 data['data_value'].update(data_value)
-        # data = BasicModel.normalize_datetime_fields(self.tz, data)
         self.virtual_fields_parser = fields_parser.copy()
         self.transform_config = trnf_config.copy()
         self.load_data(data)
@@ -489,7 +509,6 @@ class OzonModelBase(OzonMBase):
             self.error_status(msg, data=data)
             return None
         self.modelr.set_active()
-
         return self.modelr
 
     async def upsert(
@@ -598,8 +617,9 @@ class OzonModelBase(OzonMBase):
             result = None
             result_save = await coll.insert_one(to_save)
             if result_save:
-                res = await self.load({"rec_name": to_save['rec_name']})
-                return await self.load({"rec_name": to_save['rec_name']})
+                return await self.load(
+                    {"rec_name": to_save['rec_name']}, in_execution=True
+                )
             self.error_status(
                 _("Error save  %s ") % str(to_save['rec_name']), to_save
             )
@@ -636,7 +656,7 @@ class OzonModelBase(OzonMBase):
                 domain,
             )
             return None
-        record_to_copy = await self.load(domain)
+        record_to_copy = await self.load(domain, in_execution=True)
         self.modelr.renew_id()
         if (
             hasattr(record_to_copy, "rec_name")
@@ -676,20 +696,21 @@ class OzonModelBase(OzonMBase):
             original = await self.load(record.rec_name_domain())
             if not self.virtual:
                 _save = record.get_dict(compute_datetime=False)
+                _save = self.model.normalize_datetime_fields(self.tz, _save)
                 to_save = original.get_dict_diff(
                     _save.copy(),
                     ignore_fields=default_list_metadata_fields_update,
                     remove_ignore_fileds=remove_mata,
                 )
             else:
-                to_save = record.get_dict(compute_datetime=False)
-                to_save = self._make_from_dict(copy.deepcopy(to_save))
+                _save = record.get_dict(compute_datetime=False)
+                to_save = self._make_from_dict(copy.deepcopy(_save))
             if "rec_name" in to_save:
                 to_save.pop("rec_name")
             to_save["update_uid"] = self.orm.user_session.get("user.uid")
             to_save["update_datetime"] = record.utc_now()
             await coll.update_one(record.rec_name_domain(), {"$set": to_save})
-            return await self.load(record.rec_name_domain())
+            return await self.load(record.rec_name_domain(), in_execution=True)
         except pymongo.errors.DuplicateKeyError as e:
             logger.error(f" Duplicate {e.details['errmsg']}")
             field = e.details["keyValue"]
@@ -754,11 +775,13 @@ class OzonModelBase(OzonMBase):
         num = await coll.delete_many(domain)
         return num
 
-    async def load(self, domain: dict) -> Union[None, CoreModel]:
+    async def load(
+        self, domain: dict, in_execution=False
+    ) -> Union[None, CoreModel]:
         data = await self.load_raw(domain)
         if self.status.fail:
             return None
-        self.load_data(data)
+        self.load_data(data, in_execution=in_execution)
         return self.modelr
 
     async def load_raw(self, domain: dict) -> Union[None, dict]:
@@ -776,9 +799,7 @@ class OzonModelBase(OzonMBase):
             return {}
         if data.get("_id"):
             data.pop("_id")
-        return json.loads(
-            json.dumps(data, cls=JsonEncoder, ensure_ascii=False)
-        )
+        return data
 
     async def find(
         self, domain: dict, sort: str = "", limit=0, skip=0, pipeline_items=[]
@@ -793,18 +814,15 @@ class OzonModelBase(OzonMBase):
         )
         res = []
         if datas:
-            for rec_dat in datas:
-                rec_data = json.loads(
-                    json.dumps(rec_dat, cls=JsonEncoder, ensure_ascii=False)
-                )
+            for rec_data in datas:
                 if "_id" in rec_data:
-                    rec_data['id'] = rec_data.pop("_id")
+                    rec_data.pop("_id")
                 if self.virtual:
-                    res.append(self.load_data(rec_data))
-                else:
-                    rec_data = self.model.normalize_datetime_fields(
+                    rec_data = CoreModel.normalize_datetime_fields(
                         self.tz, rec_data
                     )
+                    res.append(self.load_data(rec_data))
+                else:
                     res.append(self.model(**rec_data))
         return res
 
@@ -877,15 +895,15 @@ class OzonModelBase(OzonMBase):
             pipeline, sort=sort, limit=limit, skip=skip
         )
         res = []
-        for rec_dat in datas:
-            rec_data = json.loads(
-                json.dumps(rec_dat, cls=JsonEncoder, ensure_ascii=False)
-            )
+        for rec_data in datas:
+            # rec_data = json.loads(
+            #     json.dumps(rec_dat, cls=JsonEncoder, ensure_ascii=False)
+            # )
             agg_mm = ModelMaker(
                 f"{self.data_model}.agg", tz=self.setting_app.tz
             )
             if "_id" in rec_data:
-                rec_data['id'] = rec_data.pop("_id")
+                rec_data.pop("_id")
             agg_mm.from_data_dict(rec_data)
             agg_mm.new(),
             res.append(agg_mm.instance)

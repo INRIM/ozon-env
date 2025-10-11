@@ -60,7 +60,7 @@ async def test_make_form_cond_schema():
     assert test_2.instance.username == "wrong"
     assert test_2.realted_fields_logic == {'username': ['secret'],
                                            'password': ['secret']}
-    d = test_2.instance.get_dict()
+    d = test_2.instance.get_dict(exclude=["id"])
     assert d == {'username': 'wrong', 'password': 'incorrect',
                  'secret': 'Secret message', 'rec_name': ''}
 

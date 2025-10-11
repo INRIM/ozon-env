@@ -11,13 +11,7 @@ from dateutil.parser import parse
 from json_logic import jsonLogic
 from pydantic import create_model, AwareDatetime
 
-from ozonenv.core.BaseModels import (
-    BasicModel,
-    BaseModel,
-    MainModel,
-    ISOEncoder,
-    defaultdt,
-)
+from ozonenv.core.BaseModels import BasicModel, BaseModel, MainModel, defaultdt
 from ozonenv.core.DateEngine import DateEngine
 from ozonenv.core.utils import (
     fetch_dict_get_value,
@@ -451,8 +445,13 @@ class selectComponent(Component):
         self.idPath = self.raw.get("idPath", "")
         self.multiple = self.raw.get("multiple", False)
         self.dataSrc = self.raw.get("dataSrc", "values")
-        if self.dataSrc == "resource":
-            self.builder.components_ext_data_src.append(self.key)
+        self.field_cfg = {
+            "multi": self.multiple,
+            "default": self.defaultValue,
+            "properties": self.properties.copy(),
+        }
+
+        if self.dataSrc and self.dataSrc in ["resource", "custom"]:
             if self.raw.get("template"):
                 self.template_label_keys = decode_resource_template(
                     self.raw.get("template")
@@ -461,11 +460,23 @@ class selectComponent(Component):
                 self.template_label_keys = decode_resource_template(
                     "<span>{{ item.label }}</span>"
                 )
+            if self.dataSrc == "custom" and not self.idPath:
+                self.idPath = "id"
             self.resource_id = self.raw.get("data") and self.raw.get(
                 "data"
             ).get("resource")
-        if self.dataSrc == "url":
-            self.builder.components_ext_data_src.append(self.key)
+
+            self.field_cfg.update(
+                {
+                    "src": self.dataSrc,
+                    "template_label_keys": self.template_label_keys.copy(),
+                    "idPath": self.idPath,
+                    "resource_id": self.resource_id,
+                }
+            )
+
+        elif self.dataSrc == "url":
+
             self.url = self.raw.get("data").get("url")
             self.header_key = (
                 self.raw.get("data", {}).get("headers", [])[0].get("key")
@@ -473,6 +484,28 @@ class selectComponent(Component):
             self.header_value_key = (
                 self.raw.get("data", {}).get("headers", [])[0].get("value")
             )
+            self.field_cfg.update(
+                {
+                    "src": self.dataSrc,
+                    "url": self.url,
+                    "header_key": self.header_key,
+                    "header_value_key": self.header_value_key,
+                }
+            )
+            self.builder.components_ext_data_src[self.key] = {
+                "src": self.dataSrc,
+                "url": self.url,
+                "header_key": self.header_key,
+                "header_value_key": self.header_value_key,
+            }
+        else:
+            self.field_cfg.update(
+                {"src": self.dataSrc, "resource_id": self.resource_id}
+            )
+        self.builder.select_fields[self.key] = self.field_cfg.copy()
+        self.builder.select_options[self.key] = (
+            self.raw.get("data", {}).get("values", {}).copy()
+        )
 
     def update_config(self):
         super(selectComponent, self).update_config()
@@ -489,36 +522,37 @@ class selectComponent(Component):
             self.cfg[self.dataSrc] = self.raw.get("data").get(self.dataSrc)
             self.cfg["template_label_keys"] = self.template_label_keys
 
-    @classmethod
-    def make_resource_list(cls, cfg={}, resource_list=[]):
-        data_src = cfg["dataSrc"]
-        template_label_keys = cfg["template_label_keys"]
-        properties = cfg["properties"]
-        values = {"values": []}
-        search_object = {"values": []}
-        if data_src in ["resource", "url"]:
-            for item in resource_list:
-                if data_src == "resource":
-                    label = fetch_dict_get_value(item, template_label_keys[:])
-                    iid = item["rec_name"]
+    def make_resource_list(self):
+        resource_list = self.resources
+        self.raw["data"] = {"values": []}
+        for item in resource_list:
+            if self.dataSrc == "resource":
+                label = fetch_dict_get_value(item, self.template_label_keys[:])
+                iid = item["rec_name"]
+            elif self.dataSrc == "custom":
+                label = fetch_dict_get_value(item, self.template_label_keys[:])
+                if not item.get(self.idPath):
+                    logger.error(
+                        f" No key {self.idPath} in resouces for source Custom"
+                    )
+                iid = item.get(self.idPath)
+            else:
+                label_value = self.properties["label"]
+                label_values = label_value.split(",")
+                if len(label_values) > 1:
+                    lst_vals = [item[lv] for lv in label_values]
+                    label = " ".join(lst_vals)
                 else:
-                    label = item[properties["label"]]
-                    iid = item[properties["id"]]
-                search_object["values"].update({iid: label})
-                values["values"].append({"label": label, "value": iid})
-        elif data_src in ["values"]:
-            values["values"] = cfg["values"][:]
-            search_object["values"] = [
-                {item["value"]: item["label"]} for item in values["values"]
-            ]
-        return values, search_object
+                    label = item[label_value]
+                iid = item[self.properties["id"]]
+            self.search_object["values"].update({iid: label})
+            self.raw["data"]["values"].append({"label": label, "value": iid})
 
     @property
     def value_label(self):
-        comp = self.builder.components.get(self.key)
-        values = comp.raw.get("data") and comp.raw["data"].get("values")
+        values = self.raw.get("data") and self.raw["data"].get("values")
         for val in values:
-            if comp.value and val["value"] == (type(val["value"])(comp.value)):
+            if comp.value and val["value"] == (type(val["value"])(self.value)):
                 label = val["label"]
                 if self.i18n.get(self.language):
                     return self.i18n[self.language].get(label, label) or ""
@@ -544,35 +578,32 @@ class selectComponent(Component):
 
     @property
     def values(self):
-        return self.cfg["values"]
+        return self.raw.get("data", {}).get("values")
 
-    @classmethod
-    def get_default(cls, cfg, key, form_data={}):
-        """
-        search default in context_data i.e. --> default  'user.uid'
-        context data contain dict --> 'user' and user is a dict that
-        contain property 'uid'
-        If exist in context exist user.uid the value is set as default.
-        """
-        multiple = cfg[key]["multiple"]
-        defaultValue = cfg[key]["defaultValue"]
-        default = defaultValue
-        selected_id = cfg[key]["selected_id"]
-        valueProperty = cfg[key]["valueProperty"]
-        if multiple:
-            if defaultValue:
-                default = [defaultValue]
+    def get_default(self):
+        logger.info(f"self.defaultValue -> {self.defaultValue}")
+        default = self.defaultValue
+        if self.multiple:
+            if self.defaultValue:
+                default = [self.defaultValue]
             else:
                 default = []
-        if valueProperty and not selected_id:
-            if "." in valueProperty:
-                to_eval = valueProperty.split(".")
-                if len(to_eval) > 0 and form_data:
-                    selected_id = form_data.get(to_eval[1], "")
-                if multiple:
-                    default.append(selected_id)
+        if (
+            self.valueProperty
+            and not self.selected_id
+            and self.builder.new_record
+        ):
+            if "." in self.valueProperty:
+                to_eval = self.valueProperty.split(".")
+                if len(to_eval) > 0:
+                    obj = self.builder.context_data.get(to_eval[0], {})
+                    if obj and isinstance(obj, dict):
+                        self.selected_id = obj.get(to_eval[1], "")
+                if self.multiple:
+                    default.append(self.selected_id)
                 else:
-                    default = selected_id
+                    default = self.selected_id
+        logger.info(f"res default -> {default}")
         return default
 
 
@@ -703,6 +734,8 @@ class BaseModelMaker:
         self.create_simple_model_to_nesteded = []
         self.linked_object = []
         self.select_recources = []
+        self.select_values = {}
+        self.select_options = {}
         self.mapper = {
             "textfield": [str, ""],
             "password": [str, ""],
@@ -833,11 +866,9 @@ class BaseModelMaker:
             r"|(?P<int>\d+)|(?P<string>[a-zA-Z]+)"
         )
         rgx = regex.search(s)
+        types_d = []
         if not rgx:
             return str
-        if s in ["false", "true", "True", "False"]:
-            return bool
-        types_d = []
         for match in regex.finditer(s):
             types_d.append(match.lastgroup)
         if len(types_d) > 1:
@@ -888,7 +919,7 @@ class BaseModelMaker:
             if isinstance(v[1], dict) and k != "data_value":  # For DICT
                 val = self._make_models(v[1])
                 model = create_model(k, __base__=MainModel, **val)
-                dict_data[k] = (dict, model(**{}))
+                dict_data[k] = (dict, model())
             elif isinstance(v[1], list):  # For LIST
                 if self.check_all_list(v[1], dict):
                     list_res = []
@@ -896,7 +927,7 @@ class BaseModelMaker:
                         if isinstance(i, dict) and k != "data_value":
                             row = self._make_models(i)
                             model = create_model(k, __base__=MainModel, **row)
-                            list_res.append(model(**{}))
+                            list_res.append(model())
 
                     if list_res:
                         dict_data[k] = (v[0], list_res)
@@ -909,7 +940,7 @@ class BaseModelMaker:
 
     def from_data_dict(self, data):
         self.virtual = True
-        components = self._make_from_dict(data)
+        components = self._make_from_dict(copy.deepcopy(data))
         self.components = self._make_models(components)
         self.model = create_model(
             self.model_name, __base__=BasicModel, **self.components
@@ -918,8 +949,7 @@ class BaseModelMaker:
     def new(self, data: dict = None):
         if data is None:
             data = {}
-        data = self.model.normalize_datetime_fields(self.tz, data)
-        payload = json.loads(json.dumps(data, cls=ISOEncoder))
+        payload = self.model.normalize_datetime_fields(self.tz, data)
 
         self.instance = self.model(**payload)
         return self.instance
@@ -937,10 +967,24 @@ class FormioModelMaker(BaseModelMaker):
         )
         self.default_sort_str = "list_order:desc,"
         self.component_props = {}
-        self.select_fields = []
+        self.select_fields = {}
+        self.select_optoins = {}
         self.survey_fields = []
         self.datagrid_fields = []
-        self.components_ext_data_src = []
+        self.datetime_fields = {
+            "update_datetime": {
+                "transform": {
+                    "type": "datetime",
+                }
+            },
+            "create_datetime": {
+                "transform": {
+                    "type": "datetime",
+                }
+            },
+        }
+        self.components_ext_data_src = {}
+        self.resources_data_src = {}
         self.conditional = {}
         self.logic = {}
         self.config_fields = {}
@@ -952,7 +996,7 @@ class FormioModelMaker(BaseModelMaker):
         self.schema_type = "form"
         self.data_model = ""
         self.title = ""
-        self.fields = []
+        self.fields = {}
         self.columns = {}
 
     def from_formio(
@@ -989,7 +1033,8 @@ class FormioModelMaker(BaseModelMaker):
 
     def complete_component(self, field: Component):
         if field.input and field:
-            self.fields.append(field.raw.copy())
+            # self.fields.append(field.raw.copy())
+            self.fields[field.key] = field.raw.copy()
         if field and field.tableView:
             self.columns[field.key] = field.label
         if field.type == "table" and field:
@@ -1008,7 +1053,6 @@ class FormioModelMaker(BaseModelMaker):
             self.conditional[field.key] = field.get_conditions
         if field.has_logic:
             self.logic[field.key] = field.get_logic
-        self.config_fields[field.key] = field.cfg.copy()
         try:
             field.eval_components()
         except Exception as e:
@@ -1027,6 +1071,8 @@ class FormioModelMaker(BaseModelMaker):
         else:
             field = Component(comp, builder, input_type=compo_todo[0])
         field.update_config()
+        if comp.get("type") == "datetime":
+            self.datetime_fields[field.key] = field.cfg.copy()
         field.parent = self.parent
         if field.required:
             self.required_fields.append(field.key)

@@ -54,3 +54,8 @@ def is_json(str_test):
         except ValueError:
             return False
     return str_test
+
+
+def log_truncate(value, maxlen=20):
+    text = str(value)
+    return text if len(text) <= maxlen else text[: maxlen - 3] + "..."

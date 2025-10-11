@@ -3,8 +3,6 @@ import copy
 import importlib
 import json
 import logging
-
-# from ozonenv.core.cache.cache import get_cache
 import os
 import sys
 import time as time_
@@ -475,7 +473,30 @@ class OzonOrm:
         return '{version}'
         
     @classmethod
-    def get_unique_fields(cls):
+    def schema(cls) -> dict:
+        return {mod.schema}
+                
+    @classmethod
+    def all_fields(cls) -> list:
+        return {mod.mm.fields} 
+        
+    @classmethod
+    def select_fields(cls):
+        return {mod.mm.select_fields}
+
+    @classmethod
+    def select_options(cls, key: str = None, update_options: dict = None):
+        options = {mod.mm.select_options}
+        if key and update_options and key in options:
+            options[key] = update_options.copy()
+        return options.copy()
+        
+    @classmethod
+    def datetime_fields(self):
+        return {mod.mm.datetime_fields}
+        
+    @classmethod
+    def get_unique_fields(cls) -> list:
         return {mod.mm.unique_fields}
         
     @classmethod
@@ -517,23 +538,11 @@ class OzonOrm:
     @classmethod
     def filter_keys(cls):
         return {mod.mm.filter_keys}  
-         
-    @classmethod
-    def config_fields(cls):
-        return {mod.mm.config_fields} 
-             
-    @classmethod
-    def all_fields(cls) -> list:
-        return {mod.mm.fields}      
-               
+
     @classmethod
     def table_columns(cls) -> dict:
         return {mod.mm.columns}
-         
-    @classmethod
-    def components_ext_data_src(cls):
-        return {mod.mm.components_ext_data_src}
-    
+        
     @classmethod
     def get_data_model(cls):
         return "{mod.mm.data_model}"
@@ -550,9 +559,6 @@ class OzonOrm:
     def conditional(cls) -> {{str, dict}}:
         return {mod.mm.conditional}
 
-    @classmethod
-    def logic(cls) -> {{str, list}}:
-        return {mod.mm.conditional}
 """
         async with aiofiles.open(
             f"{self.models_path}/{mod.name}.py", "a+", encoding="utf-8"

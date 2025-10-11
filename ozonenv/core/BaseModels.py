@@ -8,29 +8,18 @@ import logging
 import operator
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from functools import reduce
-from typing import Any
 from typing import Optional
 from typing import TypeVar, Generic, List, Dict
 from zoneinfo import ZoneInfo
 
-import typing_extensions
 from dateutil.parser import parse
-from pydantic import (
-    BaseModel,
-    Field,
-    field_serializer,
-    AwareDatetime,
-)
-from typing_extensions import Literal
+from pydantic import BaseModel, Field, field_serializer, AwareDatetime
 
-import ozonenv
-from ozonenv.core.db.BsonTypes import BSON_TYPES_ENCODERS, PyObjectId, bson
+from ozonenv.core.DateEngine import DateEngine
+from ozonenv.core.db.BsonTypes import PyObjectId, bson, BsonEncoder
 
-IncEx: typing_extensions.TypeAlias = (
-    'set[int] | set[str] | dict[int, Any] | ' 'dict[str, Any] | None'
-)
 defaultdt = '1970-01-01T00:00:00+00:00'
 
 logger = logging.getLogger("asyncio")
@@ -167,13 +156,6 @@ export_list_metadata = [
 ]
 
 
-class ISOEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        return super().default(obj)
-
-
 class DbViewModel(BaseModel):
     name: str
     model: str
@@ -187,86 +169,22 @@ class MainModel(BaseModel):
     def str_name(cls, *args, **kwargs):
         return cls.model_json_schema(*args, **kwargs).get("title", "").lower()
 
-    @classmethod
-    def all_fields(cls) -> list:
-        return []
-
-    @classmethod
-    def compute_datetime_fields(
-        cls, data: dict, check: str, set_as: str
-    ) -> dict:
-        """
-        :param data: data dict to compute
-        :param check: string to chechk
-        :param set_as: replace "check" with this value
-        :return:
-        """
-        for compo in cls.all_fields():
-            if compo['type'] == 'datetime':
-                ckey = compo['key']
-                if data.get(ckey, set_as) == check:
-                    data[ckey] = set_as
-                    if data.get('data_value', {}).get(ckey, set_as) == check:
-                        data['data_value'][ckey] = set_as
-                elif not isinstance(data.get(ckey, set_as), datetime):
-                    data[ckey] = set_as
-                    if data.get('data_value', {}).get(ckey, set_as) == check:
-                        data['data_value'][ckey] = set_as
-        return data
-
-    def model_dump(
-        self,
-        *,
-        compute_data: bool = True,
-        mode: Literal['json', 'python'] | str = 'python',
-        include: IncEx = None,
-        exclude: IncEx = None,
-        by_alias: bool = False,
-        exclude_unset: bool = False,
-        exclude_defaults: bool = False,
-        exclude_none: bool = False,
-        round_trip: bool = False,
-        warnings: bool = True,
-    ) -> dict[str, Any]:
-        """
-        Usage docs: https://docs.pydantic.dev/dev-v2/usage/serialization
-        /#modelmodel_dump
-
-        check fileds datetime if it has 1970-01-01T00:00:00 default value
-        replace it with empt string
-
-        Returns:
-            A dictionary representation of the model.
-        """
-        res = super().model_dump(
-            mode=mode,
-            by_alias=by_alias,
-            include=include,
-            exclude=exclude,
-            exclude_unset=exclude_unset,
-            exclude_defaults=exclude_defaults,
-            exclude_none=exclude_none,
-            round_trip=round_trip,
-            warnings=warnings,
-        )
-
-        if isinstance(res, dict) and compute_data:
-            res = self.compute_datetime_fields(res, parse(defaultdt), '')
-        return res
-
     def get_dict(self, exclude=None, compute_datetime: bool = True):
         if exclude is None:
             exclude = []
-        basic = ["status", "message", "res_data"]
+        basic = ["status", "message", "res_data", "session_diff", "tz"]
         d = self.model_copy(deep=True).model_dump(
-            compute_data=compute_datetime, exclude=set().union(basic, exclude)
+            exclude=set().union(basic, exclude)
         )
         return d
 
     def get_dict_json(self, exclude=[]):
-        basic = ["status", "message", "res_data"]
         return json.loads(
-            self.model_dump_json(exclude=set().union(basic, exclude))
+            json.dumps(
+                self.get_dict(exclude=exclude),
+                cls=BsonEncoder,
+                ensure_ascii=False,
+            )
         )
 
     def get_dict_copy(self):
@@ -275,6 +193,13 @@ class MainModel(BaseModel):
     def get_dict_diff(
         self, to_compare_dict, ignore_fields=[], remove_ignore_fileds=True
     ):
+        """
+        deprecated but works use model.get_dict_diff() to get dict diff
+        :param to_compare_dict:
+        :param ignore_fields:
+        :param remove_ignore_fileds:
+        :return:
+        """
         if ignore_fields and remove_ignore_fileds:
             original_dict = self.get_dict(exclude=ignore_fields)
         else:
@@ -311,41 +236,57 @@ class MainModel(BaseModel):
             else:
                 return getattr(self, val)
         except Exception as e:
-            print(f" error  {e} field {val} not found return default")
+            logger.error(
+                f" error  {e} field {val} not found return default",
+                exc_info=True,
+            )
             return default
 
     def set_from_child(self, key, nodes: str, default):
-        setattr(self, key, self.get(nodes, default))
+        # old = getattr(self, key)
+        new = self.get(nodes, default)
+        setattr(self, key, new)
+        # self.on_field_change(key, old, new)
 
     def set(self, key, value):
+        # old = getattr(self, key)
         setattr(self, key, value)
+        # self.on_field_change(key, old, value)
 
     def add_text(self, key, value: str, prefix: str = ""):
         val = getattr(self, key)
+        # old = val
         if val and not val == "":
             val = f"{val}, {value}"
             if prefix:
                 val = f"{prefix} {val}"
             setattr(self, key, val)
+            # self.on_field_change(key, old, val)
         else:
             val = value
             if prefix:
                 val = f"{prefix} {val}"
             setattr(self, key, val)
+            # self.on_field_change(key, old, val)
 
     def set_many(self, data_dict):
         for k, v in data_dict.items():
             if hasattr(self, k):
                 setattr(self, k, v)
+                # self.on_field_change(k, old, v)
 
     def selection_value(self, key, value, read_value):
+        # old = getattr(self, key)
         setattr(self, key, value)
+        # self.on_field_change(key, old, value)
         self.data_value[key] = read_value
 
     def selection_value_from_record(self, key, src, src_key=""):
         if not src_key:
             src_key = key
-        setattr(self, key, getattr(src, src_key))
+        # old = getattr(self, key)
+        val = getattr(src, src_key)
+        setattr(self, key, val)
         self.data_value[key] = src.data_value[src_key]
 
     @classmethod
@@ -374,8 +315,6 @@ class MainModel(BaseModel):
     def default_datetime(cls) -> datetime:
         return cls.iso_to_utc(defaultdt)
 
-        # === IL METODO RICHIESTO ===
-
     @classmethod
     def normalize_datetime_fields(cls, tz: str, dati: dict) -> dict:
         """
@@ -399,7 +338,6 @@ class MainModel(BaseModel):
                 if raw_value is None:
                     continue
 
-                # Parsing robusto
                 if isinstance(raw_value, str):
                     try:
                         value = datetime.fromisoformat(raw_value)
@@ -426,23 +364,20 @@ class MainModel(BaseModel):
     model_config = {
         "populate_by_name": True,
         "arbitrary_types_allowed": True,
-        "json_encoders": BSON_TYPES_ENCODERS,
         "alias_generator": lambda f_name: f_name.replace(".", "_"),
-        "tz_aware": False,
+        "tz_aware": True,
     }
 
 
 class CoreModel(MainModel):
-    id: PyObjectId = Field(
-        default_factory=ozonenv.core.db.BsonTypes.PyObjectId, alias="_id"
-    )
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
     data_model: str = ""
     rec_name: str = ""
     app_code: List = Field(default=[])
     parent: str = ""
     process_id: str = ""
     process_task_id: str = ""
-    data_value: dict = {}
+    data_value: dict = Field(default_factory=dict)
     owner_name: str = ""
     deleted: float = 0
     list_order: int = 0
@@ -467,6 +402,8 @@ class CoreModel(MainModel):
     status: str = "ok"
     message: str = ""
     res_data: dict = Field(default={})
+    session_diff: dict = Field(default={})
+    tz: str = "Europe/Rome"
 
     @field_serializer('id')
     def serialize_dt(self, id: PyObjectId, _info):
@@ -490,26 +427,8 @@ class CoreModel(MainModel):
     def id_domain(self):
         return {"_id": bson.ObjectId(self.id)}.copy()
 
-    def get_dict_diff(
-        self,
-        to_compare_dict: dict,
-        ignore_fields: list = None,
-        remove_ignore_fileds: bool = True,
-    ):
-        if ignore_fields is None:
-            ignore_fields = []
-        if ignore_fields and remove_ignore_fileds:
-            original_dict = self.get_dict(
-                exclude=ignore_fields, compute_datetime=False
-            )
-        else:
-            original_dict = self.get_dict(compute_datetime=False)
-        diff = {
-            k: v
-            for k, v in to_compare_dict.items()
-            if k in original_dict and not original_dict[k] == v
-        }
-        return diff.copy()
+    def reset_diff(self):
+        self.session_diff = {}
 
     def is_error(self):
         return self.status == "error"
@@ -564,11 +483,20 @@ class CoreModel(MainModel):
         return dat.copy()
 
     def to_datetime(self, key):
+        """
+        DEPRECATED
+        :param key:
+        :return:
+        """
         v = self.get(key)
         try:
             return parse(v)
         except Exception:
             return v
+
+    @classmethod
+    def schema(cls):
+        return {}
 
     @classmethod
     def tranform_data_value(cls):
@@ -619,8 +547,19 @@ class CoreModel(MainModel):
         return []
 
     @classmethod
-    def components_ext_data_src(cls):
-        return []
+    def select_fields(cls):
+        return {}
+
+    @classmethod
+    def select_options(cls, key: str = None, update_options: dict = None):
+        options = {}
+        if key and update_options and key in options:
+            options[key] = update_options.copy()
+        return options.copy()
+
+    @classmethod
+    def datetime_fields(self):
+        return {}
 
     @classmethod
     def get_data_model(cls):
@@ -652,14 +591,6 @@ class BasicModel(CoreModel):
     def table_columns(cls) -> dict:
         return {}
 
-    @classmethod
-    def conditional(cls) -> {str, dict}:
-        return {}
-
-    @classmethod
-    def logic(cls) -> {str, list}:
-        return {}
-
 
 class AttachmentTrash(BasicModel):
     parent: str = ""
@@ -668,6 +599,21 @@ class AttachmentTrash(BasicModel):
     # conflict with protected namespace "model_".
     modell_rec_name: str = ""
     attachments: List[Dict] = []
+
+    @classmethod
+    def datetime_fields(self):
+        return {
+            "create_datetime": {
+                "transform": {
+                    "type": "datetime",
+                }
+            },
+            "update_datetime": {
+                "transform": {
+                    "type": "datetime",
+                }
+            },
+        }
 
 
 class Component(BasicModel):
@@ -693,6 +639,21 @@ class Component(BasicModel):
     @classmethod
     def get_unique_fields(cls):
         return ["rec_name", "title"]
+
+    @classmethod
+    def datetime_fields(self):
+        return {
+            "create_datetime": {
+                "transform": {
+                    "type": "datetime",
+                }
+            },
+            "update_datetime": {
+                "transform": {
+                    "type": "datetime",
+                }
+            },
+        }
 
 
 class Session(BasicModel):
@@ -731,6 +692,21 @@ class Session(BasicModel):
     @classmethod
     def no_clone_field_keys(cls):
         return ["token", "list_order"]
+
+    @classmethod
+    def datetime_fields(self):
+        return {
+            "create_datetime": {
+                "transform": {
+                    "type": "datetime",
+                }
+            },
+            "update_datetime": {
+                "transform": {
+                    "type": "datetime",
+                }
+            },
+        }
 
 
 class DictRecord(BaseModel):

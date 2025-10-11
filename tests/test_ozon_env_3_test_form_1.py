@@ -45,7 +45,6 @@ async def test_env_data_file_virtual_model():
     )
     assert doc.get('rec_name') == 'virtual_data.test'
     assert doc.active is True
-    doc.set_from_child('ammImpEuro', 'dg10XComm.ammImpEuro', 0.0)
     assert doc.ammImpEuro == 0.0
     assert doc.dg15XVoceTe.get('importo') == 1446.16
     doc.set_from_child('ammImpEuro', 'dg15XVoceTe.importo', 0.0)
@@ -57,7 +56,7 @@ async def test_env_data_file_virtual_model():
     assert doc.get('data_value.document_type') == 'Ordine'
     assert doc.dtRegistrazione == '2022-05-23 22:00:00+00:00'
     assert doc.get('dg15XVoceCalcolata.1.imponibile') == 1446.16
-    assert doc.to_datetime('dtRegistrazione') == BasicModel.iso_to_utc('2022-05-23 22:00:00+00:00')
+    assert doc.to_datetime("dtRegistrazione") == BasicModel.iso_to_utc('2022-05-23 22:00:00+00:00')
     assert doc.dg15XVoceCalcolata[1].get('aliquota') == 20
 
     doc_not_saved = await virtual_doc_model.insert(doc)
@@ -202,7 +201,7 @@ async def test_test_form_1_init_data():
     assert type(test_form_1.appointmentDateTime1) == datetime
     assert test_form_1.appointmentDateTime1 == CoreModel.iso_to_utc(defaultdt)
     dictres = test_form_1.model_dump()
-    assert dictres['appointmentDateTime1'] == ''
+    assert dictres['appointmentDateTime1'] == CoreModel.iso_to_utc(defaultdt)
     await env.close_env()
 
 
@@ -315,4 +314,5 @@ async def test_test_form_1_update_record():
     )
     assert test_form_1_upd.get('data_value.appointmentDateTime') == "25/05/2022 13:30:00"
     assert test_form_1_upd.get('data_value.birthdate') == "18/12/1987"
+    assert test_form_1_upd.get('data_value.favouriteFood') == ["Mexican", "Chinese"]
     await env.close_env()

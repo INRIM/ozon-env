@@ -55,7 +55,7 @@ class MockWorker1(OzonWorkerEnv):
             }
             res_data = {
                 self.topic_name: result,
-                self.p_model.name: documento.get_dict_json(),
+                self.p_model.name: documento.get_dict_json()
             }
 
             return self.success_response(msg="Done", data=res_data)
@@ -83,7 +83,7 @@ class MockWorker1(OzonWorkerEnv):
                 "dtRegistrazione": {"type": 'date'},
                 "ammImpEuro": {"type": 'float', "dp": 2},
             },
-            data_value={"tipologia": ["A", "B"], "stato": "Caricato"},
+            data_value={"tipologia": ["A", "B"]},
         )
 
         if self.virtual_doc_model.is_error():
@@ -131,6 +131,7 @@ class MockWorker1(OzonWorkerEnv):
             assert row_o.tipologia == ["a", "b"]
             assert row_o.data_value.get('stato') == "Caricato"
             assert row_o.get('data_value.stato').startswith("Car") is True
+            assert row_o.get('data_value.tipologia') == ["A", "B"]
             assert row_o.get('dett.test').startswith("a") is True
             assert row_o.stato == "caricato"
             assert row_o.prova1 == 0
@@ -153,12 +154,13 @@ class MockWorker1(OzonWorkerEnv):
             assert row_db.list_order == id
 
             row_db.selection_value("stato", "done", 'Done')
+            # row_db.stato = "done"
 
             row_db = await self.virtual_row_doc_model.update(row_db)
             assert row_db.list_order == id
             assert row_db.rec_name == f"{v_doc.rec_name}.{row.nrRiga}"
             assert row_db.stato == "done"
-            assert row_db.get('data_value.stato').startswith("Do") is True
+            assert row_db.get('data_value.stato') == "Done"
 
             row_db.selection_value("tipologia", ["a", "c"], ["A", "C"])
 
@@ -276,21 +278,20 @@ class MockWorker2(MockWorker1):
             # load form
             row_db = row_o.get_dict()
             # post update
-            row_db["stato"] = "done"
+            row_db["stato"] = "fatto"
             row_db["tipologia"] = ["a", "c"]
 
             row_upd = await self.row_model.upsert(
                 data=row_db,
-                data_value={"stato": "Done", "tipologia": ["A", "C"]},
+                data_value={"tipologia": ["A", "C"]},
             )
 
             assert row_upd.nrRiga == row.nrRiga
             assert row_upd.rec_name == f"{v_doc.rec_name}.{row.nrRiga}"
             assert row_upd.tipologia == ["a", "c"]
-            assert row_upd.stato == "done"
-            assert row_upd.data_value.get('stato') == "Done"
+            assert row_upd.stato == "fatto"
+            assert row_upd.data_value.get('stato') == "Fatto"
             assert row_upd.data_value.get('tipologia') == ["A", "C"]
-            assert row_upd.get('data_value.stato').startswith("Do") is True
 
         documento = await self.virtual_doc_model.insert(v_doc)
 
