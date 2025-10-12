@@ -4,6 +4,7 @@ import traceback
 from ozonenv.OzonEnv import OzonWorkerEnv, OzonEnv, BasicReturn
 from ozonenv.core.BaseModels import CoreModel
 from ozonenv.core.ModelMaker import MainModel
+from ozonenv.core.OzonOrm import OzonModel
 from test_common import *
 
 pytestmark = pytest.mark.asyncio
@@ -16,11 +17,10 @@ class MockWorker1(OzonWorkerEnv):
             return self.exception_response(err=res.msg)
 
         data = await get_file_data()
-        self.p_model = await self.add_model(self.params.get("model"))
-        self.row_model = await self.add_model("riga_doc")
+        self.p_model:OzonModel  = await self.add_model(self.params.get("model"))
+        self.row_model:OzonModel = await self.add_model("riga_doc")
         assert self.p_model.name == "documento_beni_servizi"
         assert self.p_model.data_model == "documento"
-
         self.virtual_doc_model = await self.add_model(
             'virtual_doc', virtual=True, data_model=self.p_model.name
         )
@@ -100,6 +100,7 @@ class MockWorker1(OzonWorkerEnv):
 
         num_doc = len(v_doc.dg15XVoceCalcolata)
         assert isinstance(v_doc.dg15XVoceCalcolata[0], MainModel) is True
+        documento = await self.virtual_doc_model.upsert(v_doc)
 
         for id, row in enumerate(v_doc.dg15XVoceCalcolata):
             # row.parent = v_doc.rec_name
@@ -153,24 +154,23 @@ class MockWorker1(OzonWorkerEnv):
             assert row_db.stato == "caricato"
             assert row_db.list_order == id
 
-            row_db.selection_value("stato", "done", 'Done')
             # row_db.stato = "done"
 
             row_db = await self.virtual_row_doc_model.update(row_db)
             assert row_db.list_order == id
             assert row_db.rec_name == f"{v_doc.rec_name}.{row.nrRiga}"
-            assert row_db.stato == "done"
-            assert row_db.get('data_value.stato') == "Done"
+            assert row_db.stato == "caricato"
+            assert row_db.get('data_value.stato') == "Caricato"
 
             row_db.selection_value("tipologia", ["a", "c"], ["A", "C"])
-
-            row_upd = await self.row_model.update(row_db)
+            row_db.stato = "fatto"
+            row_upd = await self.row_model.upsert(row_db)
             assert row_upd.nrRiga == row.nrRiga
             assert row_upd.rec_name == f"{v_doc.rec_name}.{row.nrRiga}"
             assert row_upd.tipologia == ["a", "c"]
-            assert row_upd.data_value.get('stato') == "Done"
+            assert row_upd.data_value.get('stato') == "Fatto"
             assert row_upd.data_value.get('tipologia') == ["A", "C"]
-            assert row_upd.get('data_value.stato').startswith("Do") is True
+            assert row_upd.get('data_value.parent') == '8 - 2022'
             assert row_db.list_order == id
 
         rows = await self.virtual_row_doc_model.find(
@@ -178,8 +178,6 @@ class MockWorker1(OzonWorkerEnv):
         )
 
         assert len(rows) == num_doc
-
-        documento = await self.virtual_doc_model.insert(v_doc)
 
         assert documento.dec_nome == "Test Dec"
         assert type(documento.ammImpEuro) is float
@@ -333,6 +331,7 @@ async def test_init_schema_for_woker():
     "test_form_2_formio_schema_doc_riga.json
     """
     schema_list = await get_formio_doc_schema()
+    schema_list1 = await get_formio_posizione_schema()
     schema_list2 = await get_formio_doc_riga_schema()
     schema_list3 = await get_formio_doc_schema2()
     env = OzonEnv()
@@ -341,6 +340,8 @@ async def test_init_schema_for_woker():
     await env.session_app()
     doc_schema = await env.insert_update_component(schema_list[0])
     assert doc_schema.rec_name == "documento"
+    doc_schema1 = await env.insert_update_component(schema_list1[0])
+    assert doc_schema1.rec_name == "posizione"
     doc_schema3 = await env.insert_update_component(schema_list3[0])
     assert doc_schema3.rec_name == "documento_beni_servizi"
     assert doc_schema3.data_model == "documento"

@@ -97,6 +97,9 @@ async def get_user_data():
 async def get_file_data():
     return await readfilejson('data', 'data_file_1.json')
 
+@pytestmark
+async def get_formio_posizione_schema():
+    return await readfilejson('data', 'posizione.json')
 
 @pytestmark
 async def get_formio_doc_schema():

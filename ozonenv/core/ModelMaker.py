@@ -759,6 +759,7 @@ class BaseModelMaker:
         self.fields_list = []
         self.parent = None
         self.parent_builder = None
+        self.parent_field: Component = None
         self.virtual = False
         self.filter_keys = []
         self.search_areas = []
@@ -966,9 +967,6 @@ class FormioModelMaker(BaseModelMaker):
             model_name=model_name, fields_parser=fields_parser
         )
         self.default_sort_str = "list_order:desc,"
-        self.component_props = {}
-        self.select_fields = {}
-        self.select_optoins = {}
         self.survey_fields = []
         self.datagrid_fields = []
         self.datetime_fields = {
@@ -985,9 +983,6 @@ class FormioModelMaker(BaseModelMaker):
         }
         self.components_ext_data_src = {}
         self.resources_data_src = {}
-        self.conditional = {}
-        self.logic = {}
-        self.config_fields = {}
         self.projectId = ""
         self.handle_global_change = 0
         self.no_cancel = 0
@@ -997,25 +992,48 @@ class FormioModelMaker(BaseModelMaker):
         self.data_model = ""
         self.title = ""
         self.fields = {}
+        self.component_props = {}
+        self.select_fields = {}
+        self.select_optoins = {}
         self.columns = {}
+        self.conditional = {}
+        self.logic = {}
+        self.config_fields = {}
+        self.nested_fields = {}
+        self.nested_component_props = {}
+        self.nested_select_fields = {}
+        self.nested_select_optoins = {}
+        self.nested_conditional = {}
+        self.nested_logic = {}
+        self.nested_config_fields = {}
 
     def from_formio(
-        self, schema: dict, simple=False, parent="", parent_builder=None
+        self,
+        schema: dict,
+        simple=False,
+        parent="",
+        parent_builder=None,
+        parent_field=None,
     ):
+        make_checkdefault = False if parent else True
         self.parent = parent
         self.parent_builder = parent_builder
+        self.parent_field = parent_field
         self.simple = simple
         self.components_todo = schema.get("components")[:]
         self.component_props = schema.get("properties", {})
         self.data_model = schema.get("data_model", "")
-        self.make()
+        self.make(checkdefault=make_checkdefault)
         return self.model
 
-    def add_nested(self, comp):
+    def add_nested(self, comp, suffix=""):
         field = Component(comp, self, input_type=None)
-        nested = FormioModelMaker(comp.get("key"))
+        nested = FormioModelMaker(f'{comp.get("key")}{suffix}')
         nested_model = nested.from_formio(
-            comp, parent=comp.get("key"), parent_builder=self
+            comp,
+            parent=comp.get('key'),
+            parent_builder=self,
+            parent_field=field,
         )
         field.childs = nested.model_form_fields
         self.model_form_fields[field.key] = field
@@ -1026,10 +1044,10 @@ class FormioModelMaker(BaseModelMaker):
         self.add_nested(comp)
 
     def add_table(self, comp):
-        self.add_nested(comp)
+        self.add_nested(comp, suffix="Table")
 
     def add_datagrid(self, comp):
-        self.add_nested(comp)
+        self.add_nested(comp, suffix="Row")
 
     def complete_component(self, field: Component):
         if field.input and field:
@@ -1273,25 +1291,26 @@ class FormioModelMaker(BaseModelMaker):
                             component.childs = child
                     self.form_fields[component.key] = component
 
-    def make(self) -> BaseModel:
+    def make(self, checkdefault=True) -> BaseModel:
         for c in self.components_todo:
             self._scan(c)
-        if "rec_name" not in self.components_keys:
-            component = {}
-            component["type"] = "textfield"
-            component["key"] = "rec_name"
-            component["label"] = "Name"
-            component["hidden"] = True
-            component["defaultValue"] = ""
-            self.compute_component_field(component.copy())
-        if self.data_model and "data_model" not in self.components_keys:
-            component = {}
-            component["type"] = "textfield"
-            component["key"] = "data_model"
-            component["label"] = "Data Model"
-            component["hidden"] = True
-            component["defaultValue"] = self.data_model
-            self.compute_component_field(component.copy())
+        if checkdefault:
+            if "rec_name" not in self.components_keys:
+                component = {}
+                component["type"] = "textfield"
+                component["key"] = "rec_name"
+                component["label"] = "Name"
+                component["hidden"] = True
+                component["defaultValue"] = ""
+                self.compute_component_field(component.copy())
+            if self.data_model and "data_model" not in self.components_keys:
+                component = {}
+                component["type"] = "textfield"
+                component["key"] = "data_model"
+                component["label"] = "Data Model"
+                component["hidden"] = True
+                component["defaultValue"] = self.data_model
+                self.compute_component_field(component.copy())
         self.make_model()
 
 

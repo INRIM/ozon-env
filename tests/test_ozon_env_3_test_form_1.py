@@ -291,7 +291,7 @@ async def test_test_form_1_copy_record():
     test_form_1_copy = await test_form_1_model.copy({'rec_name': 'first_form'})
     assert test_form_1_copy.get("rec_name") == f"first_form_copy"
     assert test_form_1_copy.get("owner_uid") == env.user_session.get('uid')
-    assert test_form_1_copy.create_datetime.date() == datetime.now().date()
+    assert test_form_1_copy.create_datetime.date() == datetime.utcnow().date()
     test_form_1_copy = await test_form_1_model.insert(test_form_1_copy)
     assert test_form_1_copy.is_error() is False
     # test rec_name --> model.ids

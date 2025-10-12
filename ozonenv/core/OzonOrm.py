@@ -36,6 +36,7 @@ from ozonenv.core.db.mongodb_utils import (
 from ozonenv.core.exceptions import SessionException
 from ozonenv.core.i18n import _
 from ozonenv.core.i18n import update_translation
+from ozonenv.core.ModelService import ModelService
 
 logger = logging.getLogger(__file__)
 
@@ -548,15 +549,15 @@ class OzonOrm:
         return "{mod.mm.data_model}"
     
     @classmethod
-    def conditional(cls) -> {{str, dict}}:
+    def conditional(cls) -> dict(str, dict):
         return {mod.mm.conditional}
 
     @classmethod
-    def logic(cls) -> {{str, list}}:
+    def logic(cls) -> dict(str, dict):
         return {mod.mm.logic}
     
     @classmethod
-    def conditional(cls) -> {{str, dict}}:
+    def conditional(cls) -> dict(str, dict):
         return {mod.mm.conditional}
 
 """
@@ -679,6 +680,7 @@ class OzonModel(OzonModelBase):
         self.mm_from_cache = False
         self.use_cache = False
         self.private_models = ["session", "settings"]
+        self.service: ModelService = None
         super(OzonModel, self).__init__(
             model_name=model_name,
             setting_app=self.setting_app,

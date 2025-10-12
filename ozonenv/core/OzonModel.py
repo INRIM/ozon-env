@@ -4,13 +4,12 @@ import logging
 import re
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Union, Optional
+from typing import Any, Union
 
 import bson
 import pydantic
 import pymongo
 from dateutil.parser import parse
-from pydantic import AwareDatetime
 from pydantic._internal._model_construction import ModelMetaclass
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
@@ -23,10 +22,10 @@ from ozonenv.core.BaseModels import (
     DictRecord,
     default_list_metadata,
     default_list_metadata_fields_update,
-    defaultdt,
 )
 from ozonenv.core.DateEngine import DateEngine
 from ozonenv.core.ModelMaker import ModelMaker
+from ozonenv.core.ModelService import ModelService
 from ozonenv.core.exceptions import SessionException
 from ozonenv.core.i18n import _
 from ozonenv.core.utils import is_json
@@ -125,7 +124,9 @@ class OzonMBase:
         self.mm = ModelMaker(self.name, tz=self.setting_app.tz)
         if self.static:
             self.model: BasicModel = self.static
+            self.service = ModelService(self.model, self.orm, self.tz)
             self.tranform_data_value = self.model.tranform_data_value()
+
         elif not self.static and not self.virtual:
             c_maker = ModelMaker("component", tz=self.setting_app.tz)
             c_maker.model = Component
@@ -244,61 +245,63 @@ class OzonMBase:
 
         return res_dict.copy()
 
-    def make_data_value(self, dati: dict, pdata_value: dict = None) -> dict:
+    async def make_data_value(
+        self, dati: dict, pdata_value: dict = None
+    ) -> dict:
         """
         Controlla tutti i campi datetime del model:
           - se il valore è naive, assume che sia in self.tz
           - lo converte in UTC e aggiorna il dizionario
         Ritorna il dizionario modificato
         """
-        data_value = {}
-        if pdata_value is not None:
-            data_value = pdata_value.copy()
-        for name, field in self.model.model_fields.items():
-            if name not in dati:
-                continue
-            if field.annotation in (
-                datetime,
-                AwareDatetime,
-                Optional[AwareDatetime],
-            ):
-                data_value[name] = self.dte.to_ui(
-                    dati[name] if dati[name] else defaultdt,
-                    self.tranform_data_value.get(name, {}).get(
-                        "type", "datetime"
-                    ),
-                )
-            elif field.annotation in (float, Optional[float]):
-                data_value[name] = self.readable_float(
-                    dati[name],
-                    self.tranform_data_value.get(name, {}).get("dp", 2),
-                )
-            elif name in self.model.select_fields():
-                select = self.model.select_fields()[name]
-                options = self.model.select_options()[name]
-                if select['src'] == "values":
-                    if not select['multi']:
-                        vals = [
-                            opt['label']
-                            for opt in options
-                            if opt['value'] == dati[name]
-                        ]
-                        val = vals and vals[0] or ''
-                        data_value[name] = val
-
-                    else:
-                        res = []
-                        for i in dati[name]:
-                            vals = [
-                                opt['label']
-                                for opt in options
-                                if opt['value'] == i
-                            ]
-                            vals and res.append(vals[0])
-                        data_value[name] = res
-
-        dati["data_value"] = data_value
-        return dati.copy()
+        return await self.service.compute_data_value(dati, pdata_value)
+        # data_value = {}
+        # if pdata_value is not None:
+        #     data_value = pdata_value.copy()
+        # for name, field in self.model.model_fields.items():
+        #     if name not in dati:
+        #         continue
+        #     if field.annotation in (
+        #         datetime,
+        #         AwareDatetime,
+        #         Optional[AwareDatetime],
+        #     ):
+        #         data_value[name] = self.dte.to_ui(
+        #             dati[name] if dati[name] else defaultdt,
+        #             self.tranform_data_value.get(name, {}).get(
+        #                 "type", "datetime"
+        #             ),
+        #         )
+        #     elif field.annotation in (float, Optional[float]):
+        #         data_value[name] = self.readable_float(
+        #             dati[name],
+        #             self.tranform_data_value.get(name, {}).get("dp", 2),
+        #         )
+        #     elif name in self.model.select_fields():
+        #         select = self.model.select_fields()[name]
+        #         options = self.model.select_options()[name]
+        #         if select['src'] == "values":
+        #             if not select['multi']:
+        #                 vals = [
+        #                     opt['label']
+        #                     for opt in options
+        #                     if opt['value'] == dati[name]
+        #                 ]
+        #                 val = vals and vals[0] or ''
+        #                 data_value[name] = val
+        #             else:
+        #                 res = []
+        #                 for i in dati[name]:
+        #                     vals = [
+        #                         opt['label']
+        #                         for opt in options
+        #                         if opt['value'] == i
+        #                     ]
+        #                     vals and res.append(vals[0])
+        #                 data_value[name] = res
+        # #
+        # dati["data_value"] = data_value
+        # return dati.copy()
 
     def load_data(self, data, in_execution=False):
         if not self.virtual:
@@ -491,7 +494,7 @@ class OzonModelBase(OzonMBase):
         if not self.virtual:
             # data = self.decode_datetime(data)
             data = self.model.normalize_datetime_fields(self.tz, data)
-            data = self.make_data_value(
+            data = await self.make_data_value(
                 copy.deepcopy(data), pdata_value=data.get("data_value", {})
             )
         else:
@@ -513,7 +516,7 @@ class OzonModelBase(OzonMBase):
 
     async def upsert(
         self,
-        data: dict = None,
+        data: Union[dict, CoreModel] = None,
         rec_name="",
         data_value: dict = None,
         trnf_config: dict = None,
@@ -535,6 +538,8 @@ class OzonModelBase(OzonMBase):
             trnf_config = {}
         if data is None:
             data = {}
+        elif isinstance(data, CoreModel):
+            data = data.get_dict()
         if fields_parser is None:
             fields_parser = {}
         if data_value is None:
@@ -562,7 +567,7 @@ class OzonModelBase(OzonMBase):
         exist = await self.by_name(data["rec_name"])
         if not self.virtual:
             data = self.model.normalize_datetime_fields(self.tz, data)
-            data = self.make_data_value(
+            data = await self.make_data_value(
                 copy.deepcopy(data), pdata_value=data.get("data_value", {})
             )
         else:
