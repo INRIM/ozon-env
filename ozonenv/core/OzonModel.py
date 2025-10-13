@@ -255,53 +255,6 @@ class OzonMBase:
         Ritorna il dizionario modificato
         """
         return await self.service.compute_data_value(dati, pdata_value)
-        # data_value = {}
-        # if pdata_value is not None:
-        #     data_value = pdata_value.copy()
-        # for name, field in self.model.model_fields.items():
-        #     if name not in dati:
-        #         continue
-        #     if field.annotation in (
-        #         datetime,
-        #         AwareDatetime,
-        #         Optional[AwareDatetime],
-        #     ):
-        #         data_value[name] = self.dte.to_ui(
-        #             dati[name] if dati[name] else defaultdt,
-        #             self.tranform_data_value.get(name, {}).get(
-        #                 "type", "datetime"
-        #             ),
-        #         )
-        #     elif field.annotation in (float, Optional[float]):
-        #         data_value[name] = self.readable_float(
-        #             dati[name],
-        #             self.tranform_data_value.get(name, {}).get("dp", 2),
-        #         )
-        #     elif name in self.model.select_fields():
-        #         select = self.model.select_fields()[name]
-        #         options = self.model.select_options()[name]
-        #         if select['src'] == "values":
-        #             if not select['multi']:
-        #                 vals = [
-        #                     opt['label']
-        #                     for opt in options
-        #                     if opt['value'] == dati[name]
-        #                 ]
-        #                 val = vals and vals[0] or ''
-        #                 data_value[name] = val
-        #             else:
-        #                 res = []
-        #                 for i in dati[name]:
-        #                     vals = [
-        #                         opt['label']
-        #                         for opt in options
-        #                         if opt['value'] == i
-        #                     ]
-        #                     vals and res.append(vals[0])
-        #                 data_value[name] = res
-        # #
-        # dati["data_value"] = data_value
-        # return dati.copy()
 
     def load_data(self, data, in_execution=False):
         if not self.virtual:
@@ -822,13 +775,17 @@ class OzonModelBase(OzonMBase):
             for rec_data in datas:
                 if "_id" in rec_data:
                     rec_data.pop("_id")
-                if self.virtual:
-                    rec_data = CoreModel.normalize_datetime_fields(
-                        self.tz, rec_data
-                    )
-                    res.append(self.load_data(rec_data))
-                else:
-                    res.append(self.model(**rec_data))
+                self.load_data(rec_data)
+                res.append(self.modelr)
+
+                # if self.virtual:
+                #     # rec_data = CoreModel.normalize_datetime_fields(
+                #     #     self.tz, rec_data
+                #     # )
+                #     res.append(self.load_data(rec_data))
+                # else:
+                #     self.load_data(rec_data)
+                #     res.append(self.modelr)
         return res
 
     async def find_raw(
