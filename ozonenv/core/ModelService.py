@@ -136,7 +136,7 @@ class ModelService:
             data_value[name] = value
         elif not data_value.get(name) and value:
             data_value[name] = value
-        else:
+        elif data_value.get(name) and value:
             data_value[name] = value
         return data_value.copy()
 
