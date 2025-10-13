@@ -152,7 +152,12 @@ class DateEngine:
         dt = datetime.fromisoformat(date_to_parse)
 
         # 2. Conversione nella timezone client
-        dt_client = dt.astimezone(ZoneInfo(self.tz))
+        if dt_type == "datetime":
+            dt = dt.replace(tzinfo=ZoneInfo(self.tz))
+
+            dt_client = dt.astimezone(ZoneInfo(self.tz))
+        else:
+            dt_client = dt
 
         # 3. Formattazione
         if dt_type == "datetime":

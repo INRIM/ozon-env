@@ -495,7 +495,7 @@ class OzonOrm:
         return options.copy()
         
     @classmethod
-    def datetime_fields(self):
+    def datetime_fields(cls):
         return {mod.mm.datetime_fields}
         
     @classmethod
@@ -582,7 +582,7 @@ class OzonOrm:
             session_model=session_model,
         )
         await mod.init_model()
-        await self.make_local_model(mod, component.update_datetime.isoformat())
+        await self.make_local_model(mod, component.utc_now().isoformat())
 
     async def add_model(self, model_name, virtual=False, data_model=""):
         schema = {}

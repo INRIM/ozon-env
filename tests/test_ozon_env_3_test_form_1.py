@@ -195,8 +195,8 @@ async def test_test_form_1_init_data():
     test_form_1 = await test_form_1_model.new(data)
     assert test_form_1.is_error() is False
     assert type(test_form_1.birthdate) == datetime
-    assert test_form_1.birthdate == iso8601.parse_date(
-        "1987-12-17T10:00:00+00:00"
+    assert test_form_1.birthdate == CoreModel.iso_to_utc(
+        "1987-12-17T00:00:00+00:00"
     )
     assert type(test_form_1.appointmentDateTime1) == datetime
     assert test_form_1.appointmentDateTime1 == CoreModel.iso_to_utc(defaultdt)
@@ -221,7 +221,7 @@ async def test_test_form_1_insert_ok():
     assert test_form_1.is_error() is False
     assert test_form_1.get("owner_uid") == ""
     assert test_form_1.get("rec_name") == "first_form"
-    assert test_form_1.get('birthdate') == test_form_1_model.dte.parse_to_utc_datetime("1987-12-17T10:00:00+00:00")
+    assert test_form_1.get('birthdate') == test_form_1_model.dte.parse_to_utc_datetime("1987-12-17T00:00:00+00:00")
 
     assert test_form_1.get('data_value.birthdate') == "17/12/1987"
 
@@ -307,7 +307,7 @@ async def test_test_form_1_update_record():
     data['birthdate'] = '1987-12-18T12:00:00+02:00'
     test_form_1_upd = await test_form_1_model.upsert(data)
     assert test_form_1_upd.is_error() is False
-    assert test_form_1_upd.get('birthdate') == BasicModel.iso_to_utc('1987-12-18T10:00:00+00:00')
+    assert test_form_1_upd.get('birthdate') == BasicModel.iso_to_utc('1987-12-18T00:00:00+00:00')
     assert test_form_1_upd.get('appointmentDateTime') == BasicModel.iso_to_utc(
         '2022-05-25T11:30:00+00:00'
     )

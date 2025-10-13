@@ -27,9 +27,15 @@ class ModelService:
         return locale.format_string(f"%.{dp}f", val, g)
 
     def eval_datetime(self, value: AwareDatetime, name: str = None):
-        return self.dte.to_ui(
-            value, self.tranform.get(name, {}).get("type", "datetime")
-        )
+        dttype = self.tranform.get(name, {}).get("type", "datetime")
+        if dttype == "datetime":
+            return self.dte.to_ui(
+                value, self.tranform.get(name, {}).get("type", "datetime")
+            )
+        else:
+            return self.dte.to_ui(
+                value, self.tranform.get(name, {}).get("type", "date")
+            )
 
     def eval_float(self, value, name):
         return self.readable_float(

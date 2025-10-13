@@ -17,7 +17,6 @@ from zoneinfo import ZoneInfo
 from dateutil.parser import parse
 from pydantic import BaseModel, Field, field_serializer, AwareDatetime
 
-from ozonenv.core.DateEngine import DateEngine
 from ozonenv.core.db.BsonTypes import PyObjectId, bson, BsonEncoder
 
 defaultdt = '1970-01-01T00:00:00+00:00'
@@ -316,6 +315,10 @@ class MainModel(BaseModel):
         return cls.iso_to_utc(defaultdt)
 
     @classmethod
+    def datetime_fields(cls):
+        return {}
+
+    @classmethod
     def normalize_datetime_fields(cls, tz: str, dati: dict) -> dict:
         """
         Controlla tutti i campi datetime del model:
@@ -331,6 +334,12 @@ class MainModel(BaseModel):
                 AwareDatetime,
                 Optional[AwareDatetime],
             ):
+                dttype = (
+                    cls.datetime_fields()
+                    .get(name, {})
+                    .get("transform", {})
+                    .get("type", "datetime")
+                )
                 if name not in dati:
                     continue
                 raw_value = dati[name]
@@ -338,25 +347,33 @@ class MainModel(BaseModel):
                 if raw_value is None:
                     continue
 
+                # parsing
                 if isinstance(raw_value, str):
                     try:
                         value = datetime.fromisoformat(raw_value)
                     except ValueError:
-                        # fallback — accetta solo formati coerenti col tuo sistema
                         value = BasicModel.default_datetime()
                 elif isinstance(raw_value, datetime):
                     value = raw_value
                 else:
-                    continue  # ignora tipi non datetime/stringa
+                    continue
 
-                # Se naive → applica tz base
+                # --- CASO DATE ---
+                if dttype == "date":
+                    value = datetime(
+                        value.year,
+                        value.month,
+                        value.day,
+                        tzinfo=ZoneInfo("UTC"),
+                    )
+                    dati[name] = value
+                    continue
+
+                # --- CASO DATETIME ---
                 if value.tzinfo is None:
                     value = value.replace(tzinfo=tz_base)
 
-                # Converte in UTC
                 utc_value = value.astimezone(ZoneInfo("UTC"))
-
-                # Aggiorna il dizionario
                 dati[name] = utc_value
 
         return dati
@@ -556,10 +573,6 @@ class CoreModel(MainModel):
         if key and update_options and key in options:
             options[key] = update_options.copy()
         return options.copy()
-
-    @classmethod
-    def datetime_fields(self):
-        return {}
 
     @classmethod
     def get_data_model(cls):
