@@ -470,8 +470,9 @@ class selectComponent(Component):
                 {
                     "src": self.dataSrc,
                     "template_label_keys": self.template_label_keys.copy(),
-                    "idPath": self.idPath,
+                    "idPath": self.idPath or "id",
                     "resource_id": self.resource_id,
+                    "selectValues": self.selectValues,
                 }
             )
 

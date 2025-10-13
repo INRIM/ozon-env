@@ -2,7 +2,7 @@ import json
 import locale
 from dataclasses import field
 from datetime import datetime
-from typing import Union, Any, Optional
+from typing import Union, Any, Optional, List
 
 from pydantic import AwareDatetime
 
@@ -100,9 +100,29 @@ class ModelService:
 
     async def select_url(
         self, select: dict, options: list, value: Union[str, list]
-    ):
+    ) -> List[dict[str, str]]:
         options = await self.select_url_values(select, value)
         return await self.select_values(select, options, value)
+
+    async def select_custom(
+        self, select: dict, options: list, value: Union[str, list]
+    ) -> List[dict[str, str]]:
+        # options = await self.model.select_custom(select, value)
+        # return await self.select_values(select, options, value)
+        if not select['multi']:
+            return ""
+        else:
+            return []
+
+    async def select_resource(
+        self, select: dict, options: list, value: Union[str, list]
+    ) -> List[dict[str, str]]:
+        # options = await self.model.select_custom(select, value)
+        # return await self.select_values(select, options, value)
+        if not select['multi']:
+            return ""
+        else:
+            return []
 
     async def eval_select(self, name, value):
         select = self.model.select_fields()[name].copy()
