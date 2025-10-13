@@ -792,6 +792,8 @@ class OzonModelBase(OzonMBase):
             return {}
         if data.get("_id"):
             data.pop("_id")
+        if isinstance(data.get("id"), ObjectId):
+            data["id"] = str(data["id"])
         return data
 
     async def process_all(self, datas) -> list[Any]:
@@ -800,6 +802,8 @@ class OzonModelBase(OzonMBase):
 
         async def process_one(rec_data):
             rec_data.pop("_id", None)
+            if isinstance(rec_data.get("id"), ObjectId):
+                rec_data["id"] = str(rec_data["id"])
             modelr, mm = await self._load_data(
                 self.model,
                 rec_data,
