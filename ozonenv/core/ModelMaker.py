@@ -844,6 +844,12 @@ class BaseModelMaker:
     def get_field_type(self, v):
         type_def = self.type_def
         s = v
+        ISO_DATETIME_REGEX = re.compile(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+            r"(?:\.\d+)?"  # frazioni di secondo opzionali
+            r"(?:Z|[+-]\d{2}:\d{2})?"  # timezone opzionale
+        )
+
         if not isinstance(v, str):
             s = str(v)
         try:
@@ -856,14 +862,13 @@ class BaseModelMaker:
             return float
         except Exception as e:
             pass
+
         if len(s) > 9:
-            try:
-                is_date = parse(s)
+            if bool(ISO_DATETIME_REGEX.search(s)):
                 return AwareDatetime
-            except Exception as e:
-                pass
         if s in ["false", "true", "True", "False"]:
             return bool
+
         regex = re.compile(
             r"(?P<dict>\{[^{}]+\})|(?P<list>\[[^]]+\])|(?P<float>\d*\.\d+)"
             r"|(?P<int>\d+)|(?P<string>[a-zA-Z]+)"

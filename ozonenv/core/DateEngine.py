@@ -5,6 +5,7 @@ import datetime
 import locale
 from collections import namedtuple
 from datetime import date, datetime, timedelta, time
+from typing import Union
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import parse
@@ -62,10 +63,26 @@ class DateEngine:
         return datetime.combine(self._today, time.max)
 
     def parse_to_utc_datetime(self, dt_str):
-        value = parse(dt_str)
+        if isinstance(dt_str, str):
+            value = parse(dt_str)
+        else:
+            value = dt_str
         if value.tzinfo is None:
             value = value.replace(tzinfo=ZoneInfo(self.tz))
         return value.astimezone(ZoneInfo("UTC"))
+
+    def parse_to_utc_date(self, dt_str) -> datetime:
+        if isinstance(dt_str, str):
+            value = parse(dt_str)
+        else:
+            value = dt_str
+        value = datetime(
+            value.year,
+            value.month,
+            value.day,
+            tzinfo=ZoneInfo("UTC"),
+        )
+        return value
 
     def year_range(self, year=0, datetime_o=datetime) -> dict:
         if year == 0:
@@ -141,7 +158,7 @@ class DateEngine:
         return overlap
 
     def format_in_client_tz(
-        self, date_to_parse: str, dt_type: str = "datetime"
+        self, date_to_parse: Union[str, datetime], dt_type: str = "datetime"
     ) -> str:
         # date_to_parse: stringa ISO con offset o “naive” (meglio con offset)
         # client_tz: es: "Europe/Rome"
@@ -149,7 +166,10 @@ class DateEngine:
 
         # 1. Parsing: da ISO (da stringa con offset)
         # può produrre aware datetime se la stringa ha offset
-        dt = datetime.fromisoformat(date_to_parse)
+        if not isinstance(date_to_parse, datetime):
+            dt = datetime.fromisoformat(date_to_parse)
+        else:
+            dt = date_to_parse
 
         # 2. Conversione nella timezone client
         if dt_type == "datetime":
@@ -169,9 +189,14 @@ class DateEngine:
     def to_ui(self, date_obj, dt_type: str = "datetime") -> str:
         if isinstance(date_obj, str):
             return self.format_in_client_tz(date_obj, dt_type)
-        if date_obj.tzinfo is None or date_obj.tzinfo != ZoneInfo(self.tz):
+        if (
+            date_obj.tzinfo is None
+            or date_obj.tzinfo != ZoneInfo(self.tz)
+            and dt_type == "datetime"
+        ):
             date_obj = date_obj.astimezone(ZoneInfo(self.tz))
         if dt_type == "datetime":
             return date_obj.strftime(self.client_datetime_mask)
         else:
+            date_obj = date_obj.replace(tzinfo=ZoneInfo("UTC"))
             return date_obj.strftime(self.client_date_mask)

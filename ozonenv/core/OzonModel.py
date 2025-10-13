@@ -3,14 +3,13 @@ import copy
 import locale
 import logging
 import re
-from bson import ObjectId
 from datetime import datetime, timedelta
 from typing import Any, Union
 
 import bson
 import pydantic
 import pymongo
-from dateutil.parser import parse
+from bson import ObjectId
 from pydantic._internal._model_construction import ModelMetaclass
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
@@ -39,8 +38,8 @@ class OzonMBase:
         self,
         model_name,
         setting_app: Settings = None,
-        data_model="",
-        session_model=False,
+        data_model: str = "",
+        session_model: BasicModel = False,
         virtual=False,
         static: BasicModel = None,
         schema: dict = None,
@@ -144,6 +143,12 @@ class OzonMBase:
             "list": list,
             "date": datetime,
         }
+
+        ISO_DATETIME_REGEX = re.compile(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+            r"(?:\.\d+)?"  # frazioni di secondo opzionali
+            r"(?:Z|[+-]\d{2}:\d{2})?"  # timezone opzionale
+        )
         s = v
         if type(v) in [dict, list]:
             return type(v)
@@ -167,11 +172,10 @@ class OzonMBase:
         except Exception as e:
             pass
         if len(s) > 9:
-            try:
-                is_date = parse(s)
+
+            if bool(ISO_DATETIME_REGEX.search(s)):
                 return datetime
-            except Exception as e:
-                pass
+
         rgx = regex.search(s)
         if not rgx:
             return str
@@ -193,9 +197,9 @@ class OzonMBase:
         elif cfg["type"] == 'str':
             res = str(val)
         elif cfg["type"] == 'datetime':
-            res = self.dte.to_ui(val, dt_type="datetime")
+            res = self.dte.format_in_client_tz(val, dt_type="datetime")
         elif cfg["type"] == 'date':
-            res = self.dte.to_ui(val, dt_type="date")
+            res = self.dte.format_in_client_tz(val, dt_type="date")
         elif cfg["type"] == 'float':
             res = self.readable_float(val, dp=cfg["dp"])
         else:
@@ -227,10 +231,16 @@ class OzonMBase:
             ):
                 res_dict["data_value"] = {}
             if k in self.tranform_data_value:
+                if self.tranform_data_value[k]['type'] == "datetime":
+                    v = self.dte.parse_to_utc_datetime(v)
+                elif self.tranform_data_value[k]['type'] == "date":
+                    v = self.dte.parse_to_utc_date(v)
+                val = v
                 res_dict["data_value"][k] = self.parse_data_value(
-                    v, self.tranform_data_value[k]
+                    val, self.tranform_data_value[k]
                 )
             elif self._value_type(v) in [datetime, 'datetime']:
+                v = self.dte.parse_to_utc_datetime(v)
                 res_dict["data_value"][k] = self.dte.to_ui(v, "datetime")
             elif self._value_type(v) in [float, 'float']:
                 res_dict["data_value"][k] = self.readable_float(v, 2)
@@ -239,8 +249,6 @@ class OzonMBase:
                     res_dict["data_value"][k] = data_value[k]
                 elif k not in res_dict["data_value"]:
                     res_dict["data_value"][k] = v
-            if type(v) is str and self._value_type(v) is datetime:
-                v = self.dte.parse_to_utc_datetime(v)
 
             res_dict[k] = v
 
@@ -275,7 +283,7 @@ class OzonMBase:
         else:
             if data.get("id") is ObjectId:
                 data["id"] = str(data["id"])
-            data = BasicModel.normalize_datetime_fields(tz, data)
+            # data = BasicModel.normalize_datetime_fields(tz, data)
             mm = ModelMaker(
                 data_model,
                 fields_parser=virtual_fields_parser,

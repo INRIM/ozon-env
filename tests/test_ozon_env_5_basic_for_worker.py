@@ -6,6 +6,7 @@ from ozonenv.core.BaseModels import CoreModel
 from ozonenv.core.ModelMaker import MainModel
 from ozonenv.core.OzonOrm import OzonModel
 from test_common import *
+from dateutil.parser import parse
 
 pytestmark = pytest.mark.asyncio
 
@@ -100,6 +101,7 @@ class MockWorker1(OzonWorkerEnv):
 
         num_doc = len(v_doc.dg15XVoceCalcolata)
         assert isinstance(v_doc.dg15XVoceCalcolata[0], MainModel) is True
+
         documento = await self.virtual_doc_model.upsert(v_doc)
 
         for id, row in enumerate(v_doc.dg15XVoceCalcolata):
@@ -179,14 +181,14 @@ class MockWorker1(OzonWorkerEnv):
 
         assert len(rows) == num_doc
 
-        assert documento.dec_nome == "Test Dec"
         assert type(documento.ammImpEuro) is float
         assert documento.data_value['ammImpEuro'] == '1.446,16'
+        assert documento.dec_nome == "Test Dec"
         assert documento.anomalia_gestita is False
         assert documento.data_value['dtRegistrazione'] == "24/05/2022"
         doc_bn = await self.p_model.load({"rec_name": documento.rec_name})
         assert doc_bn.dec_nome == documento.dec_nome
-        return documento
+        return doc_bn
 
 
 class MockWorker2(MockWorker1):
