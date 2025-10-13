@@ -294,6 +294,7 @@ class OzonOrm:
         self.app_settings: Settings = None
         self.app_code = self.env.app_code
         self.cls_model = cls_model
+        self.tz = "Europe/Rome"
 
     def add_private_model(self, name):
         if name not in self.private_models:
@@ -381,6 +382,7 @@ class OzonOrm:
         db_settings = await coll_settings.find_one(query)
         if db_settings.get("_id"):
             db_settings.pop("_id")
+        db_settings = Settings.normalize_datetime_fields(self.tz, db_settings)
         return Settings(
             **db_settings,
             exclude_none=True,

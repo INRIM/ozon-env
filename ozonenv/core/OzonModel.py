@@ -281,8 +281,6 @@ class OzonMBase:
                 fields_parser=virtual_fields_parser,
                 tz=tz,
             )
-            # if self.transform_config:
-            #     self.tranform_data_value = self.transform_config.copy()
             data = self._make_from_dict(copy.deepcopy(data))
             mm.from_data_dict(data)
 
