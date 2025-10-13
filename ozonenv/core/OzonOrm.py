@@ -600,9 +600,11 @@ class OzonOrm:
             and component
         ):
             if not exists(f"{self.models_path}/{model_name}.py"):
+
                 await self.init_model_and_write_code(
                     model_name, data_model, virtual, schema, component
                 )
+
             await self.import_module_model(model_name)
         await self.make_model(
             model_name, schema=schema, virtual=virtual, data_model=data_model

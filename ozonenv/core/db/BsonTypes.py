@@ -13,7 +13,6 @@ from pydantic import (
     GetJsonSchemaHandler,
 )
 from pydantic.json_schema import JsonSchemaValue
-
 # from pydantic.datetime_parse import parse_datetime
 from pydantic_core import PydanticCustomError, core_schema
 
@@ -54,17 +53,15 @@ class JsonEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, bson.decimal128.Decimal128):
             return float(o.to_decimal())
-        if isinstance(o, bson.objectid.ObjectId):
-            return str(o)
         if isinstance(o, (datetime.datetime, datetime.date, datetime.time)):
             return o.isoformat()
-        elif isinstance(o, timedelta):
-            return (datetime.datetime.min + o).time().isoformat()
         return super().default(o)
 
-class BsonEncoder(json.JSONEncoder):
+class BsonEncoder(JsonEncoder):
     """JSON serializer for objects not serializable by default json code"""
 
     def default(self, o):
         if isinstance(o, bson.objectid.ObjectId):
             return str(o)
+        else:
+            return super().default(o)
