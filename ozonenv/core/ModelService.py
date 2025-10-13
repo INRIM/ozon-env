@@ -106,7 +106,7 @@ class ModelService:
 
     async def select_custom(
         self, select: dict, options: list, value: Union[str, list]
-    ) -> List[dict[str, str]]:
+    ) -> Union[str, List[dict[str, str]]]:
         # options = await self.model.select_custom(select, value)
         # return await self.select_values(select, options, value)
         if not select['multi']:
@@ -116,7 +116,7 @@ class ModelService:
 
     async def select_resource(
         self, select: dict, options: list, value: Union[str, list]
-    ) -> List[dict[str, str]]:
+    ) -> Union[str, List[dict[str, str]]]:
         # options = await self.model.select_custom(select, value)
         # return await self.select_values(select, options, value)
         if not select['multi']:
@@ -130,6 +130,12 @@ class ModelService:
         return await getattr(self, f"select_{select['src']}")(
             select, options, value
         )
+    def check_update_data_value(self,name, data_value, value):
+        if name not in data_value:
+            data_value[name] = value
+        elif not data_value.get(name) and value:
+            data_value[name] = value
+        return data_value.copy()
 
     async def compute_data_value(self, dati: dict, pdata_value: dict = None):
         data_value = {}
@@ -143,15 +149,22 @@ class ModelService:
                 AwareDatetime,
                 Optional[AwareDatetime],
             ):
-                data_value[name] = self.eval_datetime(
+                res = self.eval_datetime(
                     dati.get(name, defaultdt), name
                 )
 
+                if not data_value.get(name) and res:
+                    data_value[name] = res
+
             elif field.annotation in (float, Optional[float]):
-                data_value[name] = self.eval_float(dati.get(name, 0.0), name)
+                res = self.eval_float(dati.get(name, 0.0), name)
+                if not data_value[name] and res:
+                    data_value[name] = res
 
             elif name in self.model.select_fields():
-                data_value[name] = await self.eval_select(name, dati[name])
+                res = await self.eval_select(name, dati[name])
+                if not data_value[name] and res:
+                    data_value[name] = res
 
         dati["data_value"] = data_value
         return dati.copy()
