@@ -130,10 +130,13 @@ class ModelService:
         return await getattr(self, f"select_{select['src']}")(
             select, options, value
         )
-    def check_update_data_value(self,name, data_value, value):
+
+    def check_update_data_value(self, name, data_value, value):
         if name not in data_value:
             data_value[name] = value
         elif not data_value.get(name) and value:
+            data_value[name] = value
+        else:
             data_value[name] = value
         return data_value.copy()
 
@@ -149,22 +152,23 @@ class ModelService:
                 AwareDatetime,
                 Optional[AwareDatetime],
             ):
-                res = self.eval_datetime(
-                    dati.get(name, defaultdt), name
-                )
+                res = self.eval_datetime(dati.get(name, defaultdt), name)
 
-                if not data_value.get(name) and res:
-                    data_value[name] = res
+                data_value = self.check_update_data_value(
+                    name, data_value, res
+                )
 
             elif field.annotation in (float, Optional[float]):
                 res = self.eval_float(dati.get(name, 0.0), name)
-                if not data_value[name] and res:
-                    data_value[name] = res
+                data_value = self.check_update_data_value(
+                    name, data_value, res
+                )
 
             elif name in self.model.select_fields():
                 res = await self.eval_select(name, dati[name])
-                if not data_value[name] and res:
-                    data_value[name] = res
+                data_value = self.check_update_data_value(
+                    name, data_value, res
+                )
 
         dati["data_value"] = data_value
         return dati.copy()
