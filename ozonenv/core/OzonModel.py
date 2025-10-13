@@ -1,8 +1,9 @@
+import asyncio
 import copy
 import locale
 import logging
 import re
-import uuid
+from bson import ObjectId
 from datetime import datetime, timedelta
 from typing import Any, Union
 
@@ -256,26 +257,52 @@ class OzonMBase:
         """
         return await self.service.compute_data_value(dati, pdata_value)
 
-    def load_data(self, data, in_execution=False):
-        if not self.virtual:
+    async def _load_data(
+        self,
+        model,
+        data,
+        virtual,
+        data_model,
+        is_session_model,
+        tz,
+        virtual_fields_parser,
+    ) -> tuple[CoreModel, ModelMaker]:
+        mm = False
+        if not virtual:
             # if not in_execution:
-            data = self.model.normalize_datetime_fields(self.tz, data)
-            self.modelr = self.model(**data)
+            data = model.normalize_datetime_fields(tz, data)
+            modelr = model(**data)
         else:
-            data = BasicModel.normalize_datetime_fields(self.tz, data)
-            self.mm = ModelMaker(
-                self.data_model,
-                fields_parser=self.virtual_fields_parser,
-                tz=self.setting_app.tz,
+            if data.get("id") is ObjectId:
+                data["id"] = str(data["id"])
+            data = BasicModel.normalize_datetime_fields(tz, data)
+            mm = ModelMaker(
+                data_model,
+                fields_parser=virtual_fields_parser,
+                tz=tz,
             )
-            if self.transform_config:
-                self.tranform_data_value = self.transform_config.copy()
+            # if self.transform_config:
+            #     self.tranform_data_value = self.transform_config.copy()
             data = self._make_from_dict(copy.deepcopy(data))
-            self.mm.from_data_dict(data)
+            mm.from_data_dict(data)
 
-            self.modelr = self.mm.new()
-        if not self.is_session_model and not self.modelr.rec_name:
-            self.modelr.rec_name = f"{self.data_model}.{self.modelr.id}"
+            modelr = mm.new()
+        if not is_session_model and not modelr.rec_name:
+            modelr.rec_name = f"{data_model}.{modelr.id}"
+        return modelr, mm
+
+    async def load_data(self, data, in_execution=False):
+        if self.transform_config:
+            self.tranform_data_value = self.transform_config.copy()
+        self.modelr, self.mm = await self._load_data(
+            self.model,
+            data,
+            self.virtual,
+            self.data_model,
+            self.is_session_model,
+            self.tz,
+            self.virtual_fields_parser,
+        )
 
 
 class OzonModelBase(OzonMBase):
@@ -324,7 +351,7 @@ class OzonModelBase(OzonMBase):
     async def set_lang(self):
         self.lang = self.orm.lang
 
-    def eval_sort_str(self, sortstr="") -> list[tuple]:
+    def eval_sort_str(self, sortstr="") -> dict[Any, Any]:
         """
         eval sort string in sort rule
         :param sortstr: eg. list_order:asc,rec_name:desc
@@ -451,13 +478,15 @@ class OzonModelBase(OzonMBase):
                 copy.deepcopy(data), pdata_value=data.get("data_value", {})
             )
         else:
+            if self.transform_config:
+                self.tranform_data_value = self.transform_config.copy()
             if data_value:
                 if "data_value" not in data:
                     data['data_value'] = {}
                 data['data_value'].update(data_value)
         self.virtual_fields_parser = fields_parser.copy()
         self.transform_config = trnf_config.copy()
-        self.load_data(data)
+        await self.load_data(data)
         if not self.name_allowed.match(self.modelr.rec_name):
             msg = (
                 _("Not allowed chars in field name: %s") % self.modelr.rec_name
@@ -530,7 +559,7 @@ class OzonModelBase(OzonMBase):
                 data['data_value'].update(data_value)
             self.virtual_fields_parser = fields_parser.copy()
             self.transform_config = trnf_config.copy()
-        self.load_data(data)
+        await self.load_data(data)
         self.modelr.set_active()
         if exist:
             return await self.update(self.modelr)
@@ -739,7 +768,7 @@ class OzonModelBase(OzonMBase):
         data = await self.load_raw(domain)
         if self.status.fail:
             return None
-        self.load_data(data, in_execution=in_execution)
+        await self.load_data(data, in_execution=in_execution)
         return self.modelr
 
     async def load_raw(self, domain: dict) -> Union[None, dict]:
@@ -759,9 +788,29 @@ class OzonModelBase(OzonMBase):
             data.pop("_id")
         return data
 
+    async def process_all(self, datas) -> list[Any]:
+        if not datas:
+            return []
+
+        async def process_one(rec_data):
+            rec_data.pop("_id", None)
+            modelr, mm = await self._load_data(
+                self.model,
+                rec_data,
+                self.virtual,
+                self.data_model,
+                self.is_session_model,
+                self.tz,
+                self.virtual_fields_parser,
+            )
+            return modelr
+
+        results = await asyncio.gather(*(process_one(d) for d in datas))
+        return results
+
     async def find(
         self, domain: dict, sort: str = "", limit=0, skip=0, pipeline_items=[]
-    ) -> list[CoreModel]:
+    ) -> list[Any]:
         datas = await self.find_raw(
             domain,
             sort=sort,
@@ -771,22 +820,13 @@ class OzonModelBase(OzonMBase):
             fields={},
         )
         res = []
-        if datas:
-            for rec_data in datas:
-                if "_id" in rec_data:
-                    rec_data.pop("_id")
-                self.load_data(rec_data)
+        if not self.virtual:
+            return await self.process_all(datas)
+        else:
+            for rec in datas:
+                await self.load_data(rec)
                 res.append(self.modelr)
-
-                # if self.virtual:
-                #     # rec_data = CoreModel.normalize_datetime_fields(
-                #     #     self.tz, rec_data
-                #     # )
-                #     res.append(self.load_data(rec_data))
-                # else:
-                #     self.load_data(rec_data)
-                #     res.append(self.modelr)
-        return res
+            return res
 
     async def find_raw(
         self,
@@ -796,7 +836,7 @@ class OzonModelBase(OzonMBase):
         skip=0,
         pipeline_items=[],
         fields={},
-    ) -> list[dict]:
+    ) -> list[Any]:
         self.init_status()
         if self.virtual and not self.data_model:
             msg = _(

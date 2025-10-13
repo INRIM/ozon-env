@@ -7,6 +7,7 @@ import logging
 import re
 from typing import List, Any
 
+from bson import ObjectId
 from dateutil.parser import parse
 from json_logic import jsonLogic
 from pydantic import create_model, AwareDatetime
@@ -918,6 +919,8 @@ class BaseModelMaker:
     def _make_models(self, dict_data):
         new_dict = copy.deepcopy(dict_data)
         for k, v in new_dict.items():
+            if isinstance(v, ObjectId):
+                continue
             if isinstance(v[1], dict) and k != "data_value":  # For DICT
                 val = self._make_models(v[1])
                 model = create_model(k, __base__=MainModel, **val)
