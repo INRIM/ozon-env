@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import sys
-import asyncio
 import time as time_
 from os.path import dirname, exists
 
@@ -275,26 +274,41 @@ def compute_model_dependencies(name, model, models):
 
 def propagate_data_model_dependencies(reverse_depends, models):
     """
-    Propaga le dipendenze in base alla catena data_model:
-    se C.data_model = B e B dipende da A, allora C dipende anche da A.
+    Propaga le dipendenze ai figli (data_model chain).
+    Se X.depends include Y, allora Y.it_depends e tutti i discendenti di Y.it_depends includono X.
     """
-    # Mappa inversa: chi eredita da chi
-    inheritance_map = {
-        name: getattr(model, "data_model", None)
-        for name, model in models.items()
-    }
 
-    # Propagazione bottom-up
-    for child, parent in inheritance_map.items():
-        if not parent or parent not in models:
-            continue
-        parent_deps = reverse_depends.get(parent, [])
-        if parent_deps:
-            # ogni dipendenza del padre diventa anche dipendenza del figlio
-            for dep in parent_deps:
-                reverse_depends.setdefault(dep, [])
-                if child not in reverse_depends[dep]:
-                    reverse_depends[dep].append(child)
+    # Mappa padre -> figli diretti
+    children_map = {}
+    for name, model in models.items():
+        parent = getattr(model, "data_model", None)
+        if parent and parent in models:
+            children_map.setdefault(parent, []).append(name)
+
+    # Funzione ricorsiva per trovare tutti i discendenti
+    def get_all_descendants(parent, visited=None):
+        if visited is None:
+            visited = set()
+        if parent not in children_map:
+            return set()
+        for child in children_map[parent]:
+            if child not in visited:
+                visited.add(child)
+                visited |= get_all_descendants(child, visited)
+        return visited
+
+    # Costruiamo la nuova mappa
+    new_reverse = {dep: set(deps) for dep, deps in reverse_depends.items()}
+
+    # Per ogni chiave, propaga anche ai discendenti
+    for dep, dependents in reverse_depends.items():
+        for descendant in get_all_descendants(dep):
+            new_reverse.setdefault(descendant, set()).update(dependents)
+
+    # Converte in liste ordinate per consistenza
+    reverse_depends.clear()
+    for k, v in new_reverse.items():
+        reverse_depends[k] = sorted(v)
 
 
 class OzonOrm:

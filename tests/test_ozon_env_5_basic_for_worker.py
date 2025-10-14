@@ -20,7 +20,8 @@ class MockWorker1(OzonWorkerEnv):
         data = await get_file_data()
         self.p_model:OzonModel  = self.get(self.params.get("model"))
         self.row_model:OzonModel = self.get("riga_doc")
-        assert self.row_model.it_depends == ['documento', 'documento_beni_servizi']
+
+        assert self.p_model.it_depends == ['riga_doc']
         assert self.p_model.name == "documento_beni_servizi"
         assert self.p_model.data_model == "documento"
         assert self.p_model.model.model_depends() == ["posizione"]
