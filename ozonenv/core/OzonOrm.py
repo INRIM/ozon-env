@@ -333,6 +333,7 @@ class OzonOrm:
                 await self.make_model(main_model)
 
         for db_model in self.db_models:
+            self.dependencies[db_model] = {"it_depends":[], "depends":[]}
             if db_model not in list(self.env.models.keys()):
                 home = AsyncPath(f"{self.models_path}/{db_model}.py")
                 if await home.exists():
@@ -358,6 +359,7 @@ class OzonOrm:
                         await self.make_model(db_model)
                 else:
                     await self.add_model(db_model)
+                self.dependencies[db_model]['depends'] = self.env.models[model_name].depends
 
     async def get_collections_names(self, query={}):
         if not query:

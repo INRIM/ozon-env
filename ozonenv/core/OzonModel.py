@@ -622,6 +622,7 @@ class OzonModelBase(OzonMBase):
                 _("Error save  %s ") % str(to_save['rec_name']), to_save
             )
             return result
+
         except pymongo.errors.DuplicateKeyError as e:
             logger.error(f" Duplicate {e.details['errmsg']}")
             field = e.details["keyValue"]
@@ -697,7 +698,7 @@ class OzonModelBase(OzonMBase):
                 data["update_uid"] = self.orm.user_session.get("user.uid")
                 data["update_datetime"] = record.utc_now()
                 data = self.model.normalize_datetime_fields(self.tz, data)
-                # data = self._make_from_dict(data)
+
                 _save = await self.make_data_value(
                     copy.deepcopy(data), pdata_value=data.get("data_value", {})
                 )
@@ -724,6 +725,7 @@ class OzonModelBase(OzonMBase):
                 record.get_dict_copy(),
             )
             return None
+
         except pydantic.ValidationError as e:
             logger.error(f" Validation {e}")
             self.error_status(
