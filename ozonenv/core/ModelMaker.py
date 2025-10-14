@@ -466,13 +466,18 @@ class selectComponent(Component):
             self.resource_id = self.raw.get("data") and self.raw.get(
                 "data"
             ).get("resource")
-
+            if self.resource_id:
+                self.builder.model_depends.append(self.resource_id)
+            custom = self.raw.get("data").get("custom", "")
+            if custom:
+                self.builder.model_depends.append(custom)
             self.field_cfg.update(
                 {
                     "src": self.dataSrc,
                     "template_label_keys": self.template_label_keys.copy(),
                     "idPath": self.idPath or "id",
                     "resource_id": self.resource_id,
+                    "custom": self.raw.get("data").get("custom", ""),
                     "selectValues": self.selectValues,
                 }
             )
@@ -486,6 +491,8 @@ class selectComponent(Component):
             self.header_value_key = (
                 self.raw.get("data", {}).get("headers", [])[0].get("value")
             )
+            if self.properties.get("model"):
+                self.builder.model_depends.append(self.properties.get("model"))
             self.field_cfg.update(
                 {
                     "src": self.dataSrc,
@@ -1007,6 +1014,7 @@ class FormioModelMaker(BaseModelMaker):
         self.columns = {}
         self.conditional = {}
         self.logic = {}
+        self.model_depends = []
         self.config_fields = {}
         self.nested_fields = {}
         self.nested_component_props = {}
@@ -1090,6 +1098,7 @@ class FormioModelMaker(BaseModelMaker):
         if self.parent_builder:
             builder = self.parent_builder
         if comp.get("type") == "select":
+
             field = selectComponent(comp, builder, input_type=compo_todo[0])
         elif comp.get("type") == "survey":
             field = surveyComponent(comp, builder, input_type=compo_todo[0])
@@ -1194,31 +1203,10 @@ class FormioModelMaker(BaseModelMaker):
         compo_todo = self.mapper.get("file")[:]
         self.complete_component_field(comp.copy(), compo_todo)
 
-    def _schema_fingerprint(self, payload):
-        try:
-            data = json.dumps(payload, sort_keys=True, default=str).encode()
-            import hashlib
-
-            return hashlib.sha1(data).hexdigest()
-        except Exception as e:
-            logger.warning(f'Fingerprint fallback: {e}')
-            return str(id(payload))
-
     def make_model(self) -> BaseModel:
-        payload = {
-            "components": self.components,
-            "required": sorted(self.required_fields),
-            "unique": sorted(self.unique_fields),
-        }
-        fp = self._schema_fingerprint(payload)
-        key = (self.model_name, fp)
-        model = self._model_cache.get(key)
-        if model is None:
-            model = create_model(
-                self.model_name, __base__=MainModel, **self.components
-            )
-            self._model_cache[key] = model
-        self.model = model
+        self.model = create_model(
+            self.model_name, __base__=MainModel, **self.components
+        )
         logger.debug(f"Make model {self.model_name}... Done")
 
     def eval_columns(self, columns):
@@ -1262,6 +1250,9 @@ class FormioModelMaker(BaseModelMaker):
             mtd = getattr(self, f"add_{comp.get('type')}")
             mtd(comp.copy())
         except Exception as e:
+            print(
+                f'Error creation model object map: {comp.get("type")} \n {e}'
+            )
             logger.error(
                 f'Error creation model object map: {comp.get("type")} \n {e}',
                 exc_info=True,

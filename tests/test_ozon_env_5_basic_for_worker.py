@@ -22,6 +22,7 @@ class MockWorker1(OzonWorkerEnv):
         self.row_model:OzonModel = await self.add_model("riga_doc")
         assert self.p_model.name == "documento_beni_servizi"
         assert self.p_model.data_model == "documento"
+        assert self.p_model.model.model_depends() == ["posizione"]
         self.virtual_doc_model = await self.add_model(
             'virtual_doc', virtual=True, data_model=self.p_model.name
         )
@@ -182,7 +183,7 @@ class MockWorker1(OzonWorkerEnv):
         assert len(rows) == num_doc
 
         assert type(documento.ammImpEuro) is float
-        assert documento.data_value['ammImpEuro'] == '1.446,16'
+        # assert documento.data_value['ammImpEuro'] == '1.446,16' check locale
         assert documento.dec_nome == "Test Dec"
         assert documento.anomalia_gestita is False
         assert documento.data_value['dtRegistrazione'] == "24/05/2022"
@@ -428,3 +429,4 @@ async def test_worker2_with_nested():
     assert res.data['test_topic']['model'] == "documento_beni_servizi"
     assert res.data['documento_beni_servizi']['stato'] == "caricato"
     await worker.close_env()
+

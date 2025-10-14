@@ -516,6 +516,10 @@ class CoreModel(MainModel):
         return {}
 
     @classmethod
+    def json_schema(cls) -> dict[str, Any]:
+        return {}
+
+    @classmethod
     def tranform_data_value(cls):
         return {}
 
@@ -581,6 +585,10 @@ class CoreModel(MainModel):
     @classmethod
     def get_version(cls):
         return ""
+
+    @classmethod
+    def model_depends(cls):
+        return []
 
 
 class BasicModel(CoreModel):

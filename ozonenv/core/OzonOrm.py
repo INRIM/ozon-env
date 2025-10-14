@@ -22,6 +22,7 @@ from ozonenv.core.BaseModels import (
     Dict,
     BasicModel,
 )
+from ozonenv.core.ModelService import ModelService
 from ozonenv.core.OzonClient import OzonClient
 from ozonenv.core.OzonModel import OzonModelBase, BasicReturn
 from ozonenv.core.cache.cache_utils import stop_cache  # , init_cache
@@ -36,7 +37,6 @@ from ozonenv.core.db.mongodb_utils import (
 from ozonenv.core.exceptions import SessionException
 from ozonenv.core.i18n import _
 from ozonenv.core.i18n import update_translation
-from ozonenv.core.ModelService import ModelService
 
 logger = logging.getLogger(__file__)
 
@@ -477,7 +477,11 @@ class OzonOrm:
         
     @classmethod
     def schema(cls) -> dict:
-        return {mod.schema}
+        return {mod.schema}      
+          
+    @classmethod
+    def json_schema(cls) -> dict[str, Any]:
+        return {jdata}
                 
     @classmethod
     def all_fields(cls) -> list:
@@ -561,6 +565,10 @@ class OzonOrm:
     @classmethod
     def conditional(cls) -> dict(str, dict):
         return {mod.mm.conditional}
+        
+    @classmethod
+    def model_depends(cls):
+        return {mod.mm.model_depends}
 
 """
         async with aiofiles.open(

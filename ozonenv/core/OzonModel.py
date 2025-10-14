@@ -688,8 +688,11 @@ class OzonModelBase(OzonMBase):
             coll = self.db.engine.get_collection(self.data_model)
             original = await self.load(record.rec_name_domain())
             if not self.virtual:
-                _save = record.get_dict(compute_datetime=False)
-                _save = self.model.normalize_datetime_fields(self.tz, _save)
+                data = record.get_dict()
+                data = self.model.normalize_datetime_fields(self.tz, data)
+                _save = await self.make_data_value(
+                    copy.deepcopy(data), pdata_value=data.get("data_value", {})
+                )
                 to_save = original.get_dict_diff(
                     _save.copy(),
                     ignore_fields=default_list_metadata_fields_update,
