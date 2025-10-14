@@ -129,6 +129,7 @@ class OzonMBase:
         if self.static:
             self.model: BasicModel = self.static
             self.tranform_data_value = self.model.tranform_data_value()
+            self.depends = self.model.model_depends()
             self.service = ModelService(self.model, self.orm, self.tz)
         elif not self.static and not self.virtual:
             c_maker = ModelMaker("component", tz=self.setting_app.tz)
@@ -598,10 +599,9 @@ class OzonModelBase(OzonMBase):
             record = self.set_user_data(record, self.user_session)
             record.list_order = await self.count()
             record.active = True
-
             data = record.get_dict(compute_datetime=False)
-            data = record.normalize_datetime_fields(self.tz, data)
             if not self.virtual:
+                data = record.normalize_datetime_fields(self.tz, data)
                 to_save = await self.make_data_value(
                     copy.deepcopy(data), pdata_value=data.get("data_value", {})
                 )

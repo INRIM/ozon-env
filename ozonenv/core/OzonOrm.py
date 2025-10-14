@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import sys
+import asyncio
 import time as time_
 from os.path import dirname, exists
 
@@ -267,6 +268,35 @@ class OzonEnvBase:
         return BasicReturn(fail=False, msg="Done", data={})
 
 
+def compute_model_dependencies(name, model, models):
+    deps = getattr(model, "depends", [])
+    return [(dep, name) for dep in deps if dep in models]
+
+
+def propagate_data_model_dependencies(reverse_depends, models):
+    """
+    Propaga le dipendenze in base alla catena data_model:
+    se C.data_model = B e B dipende da A, allora C dipende anche da A.
+    """
+    # Mappa inversa: chi eredita da chi
+    inheritance_map = {
+        name: getattr(model, "data_model", None)
+        for name, model in models.items()
+    }
+
+    # Propagazione bottom-up
+    for child, parent in inheritance_map.items():
+        if not parent or parent not in models:
+            continue
+        parent_deps = reverse_depends.get(parent, [])
+        if parent_deps:
+            # ogni dipendenza del padre diventa anche dipendenza del figlio
+            for dep in parent_deps:
+                reverse_depends.setdefault(dep, [])
+                if child not in reverse_depends[dep]:
+                    reverse_depends[dep].append(child)
+
+
 class OzonOrm:
     def __init__(self, env: OzonEnvBase, cls_model=OzonModelBase):
         self.env: OzonEnvBase = env
@@ -322,6 +352,29 @@ class OzonOrm:
         self.db_models = await self.get_collections_names()
         self.app_settings = await self.init_settings(self.app_code)
 
+    def set_it_depends(self, reverse_depends):
+        """Aggiorna i model con la lista it_depends."""
+        for dep, dependents in reverse_depends.items():
+            self.env.models[dep].it_depends = dependents
+
+    async def build_reverse_dependencies(self):
+        models = self.env.models
+        tasks = [
+            asyncio.to_thread(compute_model_dependencies, name, model, models)
+            for name, model in models.items()
+        ]
+        results = await asyncio.gather(*tasks)
+
+        reverse_depends = {}
+        for pairs in results:
+            for dep, name in pairs:
+                reverse_depends.setdefault(dep, []).append(name)
+
+        propagate_data_model_dependencies(reverse_depends, models)
+        self.set_it_depends(reverse_depends)
+
+        return reverse_depends
+
     async def init_models(self):
         # self.models_path = self.config_system.get("models_folder", "/models")
         await self.init_db_models()
@@ -333,7 +386,7 @@ class OzonOrm:
                 await self.make_model(main_model)
 
         for db_model in self.db_models:
-            self.dependencies[db_model] = {"it_depends":[], "depends":[]}
+            self.dependencies[db_model] = []
             if db_model not in list(self.env.models.keys()):
                 home = AsyncPath(f"{self.models_path}/{db_model}.py")
                 if await home.exists():
@@ -359,7 +412,10 @@ class OzonOrm:
                         await self.make_model(db_model)
                 else:
                     await self.add_model(db_model)
-                self.dependencies[db_model]['depends'] = self.env.models[model_name].depends
+        for neme, model in self.orm_static_models_map.items():
+            if neme not in self.env.models:
+                await self.make_model(neme)
+        await self.build_reverse_dependencies()
 
     async def get_collections_names(self, query={}):
         if not query:
@@ -656,6 +712,7 @@ class OzonOrm:
             if not virtual:
                 if model_name not in self.db_models:
                     await self.env.models[model_name].init_unique()
+                    await self.build_reverse_dependencies()
 
     async def update_model(self, schema, component):
         if schema.get("rec_name") in self.orm_static_models_map:
