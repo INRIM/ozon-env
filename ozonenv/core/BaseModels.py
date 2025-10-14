@@ -353,10 +353,10 @@ class MainModel(BaseModel):
                         value = datetime.fromisoformat(raw_value)
                     except ValueError:
                         value = BasicModel.default_datetime()
-                elif isinstance(raw_value, date):
-                    value = parse(raw_value.isoformat()).astimezone(tz_base)
                 elif isinstance(raw_value, datetime):
                     value = raw_value
+                elif isinstance(raw_value, date):
+                    value = datetime.combine(raw_value, time.min)
                 else:
                     continue
 

@@ -355,4 +355,13 @@ async def test_test_form_1_update_record():
     assert test_form_1_upd.get('data_value.appointmentDateTime') == "25/05/2022 13:30:00"
     assert test_form_1_upd.get('data_value.birthdate') == "18/12/1987"
     assert test_form_1_upd.get('data_value.favouriteFood') == ["Mexican", "Chinese"]
+
+    # Aggiorna la data con un oggetto datetime.date
+    test_form_1_upd.birthdate = CoreModel.iso_to_utc("1987-12-18T00:00:00Z").date()
+    test_form_1_upd = await test_form_1_model.update(test_form_1_upd)
+
+    assert type(test_form_1_upd.birthdate) == datetime
+    assert test_form_1_upd.birthdate == CoreModel.iso_to_utc("1987-12-18T00:00:00Z")
+    assert test_form_1_upd.data_value.get("birthdate") == "18/12/1987"
+
     await env.close_env()
