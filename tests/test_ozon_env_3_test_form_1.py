@@ -94,6 +94,44 @@ async def test_component_test_form_1_init():
     )
     await env.close_db()
 
+@pytestmark
+async def test_component_test_form_0_1_init_ok():
+    env = OzonEnv()
+    await env.init_env()
+    env.params = {"current_session_token": "BA6BA930"}
+    await env.session_app()
+    test_form_1_model = env.get('test_form_1')
+    # Testa l'inserimento tramite metodo insert
+    test_form_1_in = await test_form_1_model.new(
+        {
+            "rec_name": "first_form2",
+            "email": "name2@company.it",
+            "firstName": "name 2",
+            "lastName": "LastName 2",
+            "birthdate": datetime(1987, 12, 20).date(),
+            "appointmentDateTime": datetime(2022, 5, 25, 13, 30, 0),
+            "howManySeats": 4,
+        }
+    )
+
+    test_form_1_in = await test_form_1_model.insert(test_form_1_in)
+
+    assert test_form_1_in.is_error() is False
+
+    assert type(test_form_1_in.get("birthdate")) == datetime
+    assert test_form_1_in.get("birthdate") == CoreModel.iso_to_utc(
+        "1987-12-20T00:00:00Z"
+    )
+    assert test_form_1_in.data_value["birthdate"] == "20/12/1987"
+    assert type(test_form_1_in.get("appointmentDateTime")) == datetime
+    assert test_form_1_in.get("appointmentDateTime") == CoreModel.iso_to_utc(
+        "2022-05-25T11:30:00+00:00"
+    )
+    assert (
+        test_form_1_in.data_value["appointmentDateTime"]
+        == "25/05/2022 13:30:00"
+    )
+    await env.close_env()
 
 @pytestmark
 async def test_component_test_form_1_raw_update():
@@ -224,9 +262,12 @@ async def test_test_form_1_insert_ok():
     assert test_form_1.get('birthdate') == test_form_1_model.dte.parse_to_utc_datetime("1987-12-17T00:00:00+00:00")
 
     assert test_form_1.get('data_value.birthdate') == "17/12/1987"
-
-    test_form_1_us = await test_form_1_model.upsert(data)
+    test_form_1_us = await test_form_1_model.insert(test_form_1)
     assert test_form_1_us.is_error() is False
+    assert test_form_1_us.get('appointmentDateTime') == BasicModel.iso_to_utc(
+        '2022-05-25T11:30:00+00:00'
+    )
+    assert test_form_1_us.data_value.get('appointmentDateTime') == "25/05/2022 13:30:00"
     assert test_form_1_us.get("owner_uid") == test_form_1_model.user_session.get(
         'uid'
     )

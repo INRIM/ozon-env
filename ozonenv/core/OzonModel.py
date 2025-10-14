@@ -101,6 +101,9 @@ class OzonMBase:
         self.tz = self.setting_app.tz
         self.dte = DateEngine(TZ=self.tz)
         self.init_schema_properties()
+        self.depends = []
+        self.it_depends = []
+        self.service: ModelService
 
     def init_schema_properties(self):
         if self.schema.get("properties", {}):
@@ -122,11 +125,11 @@ class OzonMBase:
 
     async def init_model(self):
         self.mm = ModelMaker(self.name, tz=self.setting_app.tz)
+
         if self.static:
             self.model: BasicModel = self.static
-            self.service = ModelService(self.model, self.orm, self.tz)
             self.tranform_data_value = self.model.tranform_data_value()
-
+            self.service = ModelService(self.model, self.orm, self.tz)
         elif not self.static and not self.virtual:
             c_maker = ModelMaker("component", tz=self.setting_app.tz)
             c_maker.model = Component
@@ -553,12 +556,7 @@ class OzonModelBase(OzonMBase):
             return None
 
         exist = await self.by_name(data["rec_name"])
-        if not self.virtual:
-            data = self.model.normalize_datetime_fields(self.tz, data)
-            data = await self.make_data_value(
-                copy.deepcopy(data), pdata_value=data.get("data_value", {})
-            )
-        else:
+        if self.virtual:
             if data_value:
                 if "data_value" not in data:
                     data['data_value'] = {}
@@ -566,7 +564,7 @@ class OzonModelBase(OzonMBase):
             self.virtual_fields_parser = fields_parser.copy()
             self.transform_config = trnf_config.copy()
         await self.load_data(data)
-        self.modelr.set_active()
+        # self.modelr.set_active()
         if exist:
             return await self.update(self.modelr)
         else:
@@ -601,9 +599,16 @@ class OzonModelBase(OzonMBase):
             record.list_order = await self.count()
             record.active = True
 
-            d_record = record.get_dict(compute_datetime=False)
-
-            to_save = self._make_from_dict(d_record)
+            data = record.get_dict(compute_datetime=False)
+            data = record.normalize_datetime_fields(self.tz, data)
+            if not self.virtual:
+                to_save = await self.make_data_value(
+                    copy.deepcopy(data), pdata_value=data.get("data_value", {})
+                )
+            else:
+                to_save = self._make_from_dict(
+                    copy.deepcopy(data), data_value=data.get("data_value", {})
+                )
 
             if "_id" not in to_save:
                 to_save['_id'] = bson.ObjectId(to_save['id'])
@@ -689,10 +694,14 @@ class OzonModelBase(OzonMBase):
             original = await self.load(record.rec_name_domain())
             if not self.virtual:
                 data = record.get_dict()
+                data["update_uid"] = self.orm.user_session.get("user.uid")
+                data["update_datetime"] = record.utc_now()
                 data = self.model.normalize_datetime_fields(self.tz, data)
+                # data = self._make_from_dict(data)
                 _save = await self.make_data_value(
                     copy.deepcopy(data), pdata_value=data.get("data_value", {})
                 )
+
                 to_save = original.get_dict_diff(
                     _save.copy(),
                     ignore_fields=default_list_metadata_fields_update,
@@ -703,8 +712,6 @@ class OzonModelBase(OzonMBase):
                 to_save = self._make_from_dict(copy.deepcopy(_save))
             if "rec_name" in to_save:
                 to_save.pop("rec_name")
-            to_save["update_uid"] = self.orm.user_session.get("user.uid")
-            to_save["update_datetime"] = record.utc_now()
             await coll.update_one(record.rec_name_domain(), {"$set": to_save})
             return await self.load(record.rec_name_domain(), in_execution=True)
         except pymongo.errors.DuplicateKeyError as e:

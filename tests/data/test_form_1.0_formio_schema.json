@@ -316,7 +316,7 @@
                 "useLocaleSettings": false,
                 "allowInput": true,
                 "mode": "single",
-                "enableTime": true,
+                "enableTime": false,
                 "noCalendar": false,
                 "format": "yyyy-MM-dd hh:mm a",
                 "hourIncrement": 1,

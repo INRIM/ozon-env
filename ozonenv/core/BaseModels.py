@@ -8,7 +8,7 @@ import logging
 import operator
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, date, time
 from functools import reduce
 from typing import Optional
 from typing import TypeVar, Generic, List, Dict
@@ -353,6 +353,8 @@ class MainModel(BaseModel):
                         value = datetime.fromisoformat(raw_value)
                     except ValueError:
                         value = BasicModel.default_datetime()
+                elif isinstance(raw_value, date):
+                    value = parse(raw_value.isoformat()).astimezone(tz_base)
                 elif isinstance(raw_value, datetime):
                     value = raw_value
                 else:

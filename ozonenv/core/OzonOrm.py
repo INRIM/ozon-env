@@ -287,6 +287,7 @@ class OzonOrm:
             "attachmenttrash": AttachmentTrash,
             "settings": Settings,
         }
+        self.dependencies = {}
         self.db_models = []
         self.orm_sys_models = ["component", "session", "settings"]
         self.private_models = ["settings"]

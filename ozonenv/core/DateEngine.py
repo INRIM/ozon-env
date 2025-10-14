@@ -173,7 +173,7 @@ class DateEngine:
 
         # 2. Conversione nella timezone client
         if dt_type == "datetime":
-            dt = dt.replace(tzinfo=ZoneInfo(self.tz))
+            # dt = dt.replace(tzinfo=ZoneInfo(self.tz))
 
             dt_client = dt.astimezone(ZoneInfo(self.tz))
         else:
@@ -189,7 +189,7 @@ class DateEngine:
     def to_ui(self, date_obj, dt_type: str = "datetime") -> str:
         if isinstance(date_obj, str):
             return self.format_in_client_tz(date_obj, dt_type)
-        if (
+        elif (
             date_obj.tzinfo is None
             or date_obj.tzinfo != ZoneInfo(self.tz)
             and dt_type == "datetime"
