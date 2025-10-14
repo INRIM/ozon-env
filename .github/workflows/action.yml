@@ -17,6 +17,8 @@ jobs:
     env:
       OS: ${{ matrix.os }}
       PYTHON: ${{ matrix.python-version }}
+      LANG: it_IT.UTF-8
+      LC_ALL: it_IT.UTF-8
     steps:
       - uses: actions/checkout@v3
 
@@ -41,9 +43,6 @@ jobs:
           sudo apt-get install -y locales
           sudo locale-gen it_IT.UTF-8
           sudo update-locale LANG=it_IT.UTF-8
-          export LANG=it_IT.UTF-8
-          export LC_ALL=it_IT.UTF-8
-          locale
 
       - name: Install dependencies
         run: |
