@@ -89,6 +89,44 @@ class OzonEnvBase:
         self.cls_model = cls_model
         self.default_tz = (os.getenv("TZ", "Europe/Rome"),)
 
+    def build_full_graph(self, name, visited=None):
+        """
+        Costruisce una mappa strutturata centrata su `name`, con:
+          - i `depends` sopra (chi influenza il candidato)
+          - gli `it_depends` sotto (chi dipende dal candidato)
+        Esempio:
+        {
+          "C": {
+              "depends": {"B": {...}},
+              "it_depends": {"D": {...}, "E": {...}}
+          }
+        }
+        """
+        if visited is None:
+            visited = set()
+        if name not in self.models or name in visited:
+            return {}
+
+        visited.add(name)
+        model = self.models[name]
+
+        node = {name: {}}
+
+        # --- sopra: dipendenze
+        depends_map = {}
+        for dep in getattr(model, "depends", []):
+            depends_map.update(self.build_full_graph(dep, visited))
+
+        # --- sotto: chi dipende da me
+        it_depends_map = {}
+        for dep in getattr(model, "it_depends", []):
+            it_depends_map.update(self.build_full_graph(dep, visited))
+
+        node[name]["depends"] = depends_map if depends_map else {}
+        node[name]["it_depends"] = it_depends_map if it_depends_map else {}
+
+        return node
+
     @classmethod
     async def readfilejson(cls, cfg_file):
         async with aiofiles.open(cfg_file, mode="r") as f:

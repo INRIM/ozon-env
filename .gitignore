@@ -11,3 +11,4 @@ poetry.lock
 htmlcov
 .coverage
 tests/models
+localexample
