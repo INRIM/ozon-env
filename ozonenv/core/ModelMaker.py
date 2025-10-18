@@ -1031,6 +1031,7 @@ class FormioModelMaker(BaseModelMaker):
         parent="",
         parent_builder=None,
         parent_field=None,
+        use_base_model=False,
     ):
         make_checkdefault = False if parent else True
         self.parent = parent

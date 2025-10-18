@@ -18,6 +18,7 @@ from dateutil.parser import parse
 from pydantic import BaseModel, Field, field_serializer, AwareDatetime
 
 from ozonenv.core.db.BsonTypes import PyObjectId, bson, BsonEncoder
+from bson import ObjectId, Decimal128
 
 defaultdt = '1970-01-01T00:00:00+00:00'
 
@@ -377,6 +378,22 @@ class MainModel(BaseModel):
 
                 utc_value = value.astimezone(ZoneInfo("UTC"))
                 dati[name] = utc_value
+            elif field.annotation in [int, Optional[int]]:
+                if name not in dati:
+                    continue
+                if type(dati[name]) is str:
+                    try:
+                        dati[name] = int(dati[name])
+                    except ValueError:
+                        dati[name] = 0
+            elif field.annotation in [float, Optional[float]]:
+                if name not in dati:
+                    continue
+                if type(dati[name]) in [Decimal128, str]:
+                    try:
+                        dati[name] = float(str(dati[name]))
+                    except ValueError:
+                        dati[name] = 0.0
 
         return dati
 

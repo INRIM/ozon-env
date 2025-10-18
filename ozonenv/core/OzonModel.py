@@ -284,7 +284,6 @@ class OzonMBase:
     ) -> tuple[CoreModel, ModelMaker]:
         mm = False
         if not virtual and not as_virtual:
-            # if not in_execution:
             data = model.normalize_datetime_fields(tz, data)
             modelr = model(**data)
         else:
@@ -700,7 +699,10 @@ class OzonModelBase(OzonMBase):
         return record
 
     async def update(
-        self, record: CoreModel, remove_mata=True
+        self,
+        record: CoreModel,
+        remove_mata=True,
+        force_update_whole_record=False,
     ) -> Union[None, CoreModel]:
         self.init_status()
         if not self.chk_write_permission():
@@ -724,12 +726,14 @@ class OzonModelBase(OzonMBase):
                 _save = await self.make_data_value(
                     copy.deepcopy(data), pdata_value=data.get("data_value", {})
                 )
-
-                to_save = original.get_dict_diff(
-                    _save.copy(),
-                    ignore_fields=default_list_metadata_fields_update,
-                    remove_ignore_fileds=remove_mata,
-                )
+                if not force_update_whole_record:
+                    to_save = original.get_dict_diff(
+                        _save.copy(),
+                        ignore_fields=default_list_metadata_fields_update,
+                        remove_ignore_fileds=remove_mata,
+                    )
+                else:
+                    to_save = _save.copy()
             else:
                 _save = record.get_dict(compute_datetime=False)
                 to_save = self._make_from_dict(copy.deepcopy(_save))
@@ -772,10 +776,17 @@ class OzonModelBase(OzonMBase):
                 return None
 
     async def update_many(
-        self, records: list[CoreModel]
+        self, records: list[CoreModel], force_update_whole_record=False
     ) -> list[Union[None, CoreModel]]:
 
-        results = await asyncio.gather(*(self.update(r) for r in records))
+        results = await asyncio.gather(
+            *(
+                self.update(
+                    r, force_update_whole_record=force_update_whole_record
+                )
+                for r in records
+            )
+        )
         return results
 
     async def remove(self, record: CoreModel) -> bool:

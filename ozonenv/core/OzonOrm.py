@@ -37,12 +37,15 @@ from ozonenv.core.db.mongodb_utils import (
 from ozonenv.core.exceptions import SessionException
 from ozonenv.core.i18n import _
 from ozonenv.core.i18n import update_translation
+from pathlib import Path
 
 logger = logging.getLogger(__file__)
 
 MAIN_CACHE_TIME = 800
 
 base_model_path = dirname(__file__)
+
+C_TEMPLATE_DIR: Path = Path(__file__).parents[0] / "custom_templates"
 
 
 class OzonEnvBase:
@@ -574,6 +577,7 @@ class OzonOrm:
             f"datamodel-codegen --input /tmp/{mod.name}.json"
             f" --input-file-type jsonschema "
             f" --output {self.models_path}/{mod.name}.py "
+            f" --custom-template-dir {C_TEMPLATE_DIR} "
             f" --output-model-type pydantic_v2.BaseModel "
             f" --use-standard-collections "
             f"--base-class ozonenv.core.BaseModels.BasicModel"
