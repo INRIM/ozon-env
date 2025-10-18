@@ -329,30 +329,6 @@ async def test_base_worker_env():
     await worker.close_env()
 
 
-@pytestmark
-async def test_init_schema_for_woker():
-    """
-    test_form_2_formio_schema_doc.json
-    "test_form_2_formio_schema_doc_riga.json
-    """
-    schema_list = await get_formio_doc_schema()
-    schema_list1 = await get_formio_posizione_schema()
-    schema_list2 = await get_formio_doc_riga_schema()
-    schema_list3 = await get_formio_doc_schema2()
-    env = OzonEnv()
-    await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
-    doc_schema = await env.insert_update_component(schema_list[0])
-    assert doc_schema.rec_name == "documento"
-    doc_schema1 = await env.insert_update_component(schema_list1[0])
-    assert doc_schema1.rec_name == "posizione"
-    doc_schema3 = await env.insert_update_component(schema_list3[0])
-    assert doc_schema3.rec_name == "documento_beni_servizi"
-    assert doc_schema3.data_model == "documento"
-    doc_riga_schema = await env.insert_update_component(schema_list2[0])
-    assert doc_riga_schema.rec_name == "riga_doc"
-    await env.close_env()
 
 
 @pytestmark

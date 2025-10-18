@@ -145,7 +145,7 @@ async def test_add_component_resource_1_product_raw_query():
     # add list prduct and test find/ and distinct
     await env.close_env()
 
-
+@pytestmark
 async def test_aggregation_with_product1():
     env = OzonEnv()
     await env.init_env()
@@ -194,7 +194,7 @@ async def test_aggregation_with_product1():
     assert res[3].get('title') == 'Product6'
     await env.close_env()
 
-
+@pytestmark
 async def test_aggregation_with_product2():
     env = OzonEnv()
     await env.init_env()
@@ -238,7 +238,7 @@ async def test_aggregation_with_product2():
     )
     assert products[0].get(tot_field) == 904.5
 
-
+@pytestmark
 async def test_products_distinct_name():
     env = OzonEnv()
     await env.init_env()
@@ -252,7 +252,7 @@ async def test_products_distinct_name():
     assert len(products) == 10
     assert products[3] == "prod3"
 
-
+@pytestmark
 async def test_set_to_delete_product():
     env = OzonEnv()
     await env.init_env()
@@ -296,3 +296,45 @@ async def test_set_to_delete_product():
     res = await product_model.set_active(products[0])
     assert res.rec_name == "prod2"
     assert res.deleted == 0
+    await env.close_env()
+
+@pytestmark
+async def test_init_schema_for_doc():
+    """
+    test_form_2_formio_schema_doc.json
+    "test_form_2_formio_schema_doc_riga.json
+    """
+    schema_list = await get_formio_doc_schema()
+    schema_list1 = await get_formio_posizione_schema()
+    schema_list2 = await get_formio_doc_riga_schema()
+    schema_list3 = await get_formio_doc_schema2()
+    env = OzonEnv()
+    await env.init_env()
+    env.params = {"current_session_token": "BA6BA930"}
+    await env.session_app()
+    doc_schema = await env.insert_update_component(schema_list[0])
+    assert doc_schema.rec_name == "documento"
+    doc_schema1 = await env.insert_update_component(schema_list1[0])
+    assert doc_schema1.rec_name == "posizione"
+    doc_schema3 = await env.insert_update_component(schema_list3[0])
+    assert doc_schema3.rec_name == "documento_beni_servizi"
+    assert doc_schema3.data_model == "documento"
+    doc_riga_schema = await env.insert_update_component(schema_list2[0])
+    assert doc_riga_schema.rec_name == "riga_doc"
+    await env.close_env()
+
+@pytestmark
+async def test_model_hinerithances_doc():
+    env = OzonEnv()
+    await env.init_env()
+    await env.orm.add_static_model('user', User)
+    env.params = {"current_session_token": "BA6BA930"}
+    await env.session_app()
+    await ini_data_doc(env.db)
+    docbn_model = env.get('documento_beni_servizi')
+    doc:CoreModel = await docbn_model.load(
+        { "idDg":"99999"}
+    )
+    assert doc.annoRif == 2022
+    await docbn_model.remove(doc)
+    await env.close_env()

@@ -53,6 +53,11 @@ async def init_main_collections(db):
 
 
 @pytestmark
+async def ini_data_doc(db):
+    return await init_collecetion(db, 'data_file_1.json', 'documento')
+
+
+@pytestmark
 async def get_config():
     return await readfilejson('data', 'config.json')
 

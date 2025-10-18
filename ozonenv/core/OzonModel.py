@@ -919,18 +919,25 @@ class OzonModelBase(OzonMBase):
             pipeline, sort=sort, limit=limit, skip=skip
         )
         res = []
-        for rec_data in datas:
-            # rec_data = json.loads(
-            #     json.dumps(rec_dat, cls=JsonEncoder, ensure_ascii=False)
-            # )
-            agg_mm = ModelMaker(
-                f"{self.data_model}.agg", tz=self.setting_app.tz
-            )
-            if "_id" in rec_data:
-                rec_data.pop("_id")
-            agg_mm.from_data_dict(rec_data)
-            agg_mm.new(),
-            res.append(agg_mm.instance)
+        # for rec_data in datas:
+        #     # rec_data = json.loads(
+        #     #     json.dumps(rec_dat, cls=JsonEncoder, ensure_ascii=False)
+        #     # )
+        #     agg_mm = ModelMaker(
+        #         f"{self.data_model}.agg", tz=self.setting_app.tz
+        #     )
+        #     if "_id" in rec_data:
+        #         rec_data.pop("_id")
+        #     agg_mm.from_data_dict(rec_data)
+        #     agg_mm.new(),
+        #     res.append(agg_mm.instance)
+        if not self.virtual:
+            return await self.process_all(datas)
+        else:
+            for rec in datas:
+                await self.load_data(rec)
+                res.append(self.modelr)
+            return res
         return res
 
     async def distinct(self, field_name: str, query: dict) -> list[Any]:
