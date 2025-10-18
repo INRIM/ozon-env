@@ -931,7 +931,7 @@ class BaseModelMaker:
     def _make_models(self, dict_data):
         new_dict = copy.deepcopy(dict_data)
         for k, v in new_dict.items():
-            if isinstance(v, ObjectId):
+            if isinstance(v, ObjectId) or k == "_id":
                 continue
             if isinstance(v[1], dict) and k != "data_value":  # For DICT
                 val = self._make_models(v[1])

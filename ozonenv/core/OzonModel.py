@@ -9,7 +9,7 @@ from typing import Any, Union
 import bson
 import pydantic
 import pymongo
-from bson import ObjectId
+from bson import ObjectId, Decimal128
 from pydantic._internal._model_construction import ModelMetaclass
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
@@ -211,7 +211,9 @@ class OzonMBase:
         return res
 
     def readable_float(self, val, dp=2, g=True):
-        if isinstance(val, str):
+        if isinstance(val, str) or isinstance(val, Decimal128):
+            if isinstance(val, Decimal128):
+                val = str(val)
             val = float(val)
         return locale.format_string(f"%.{dp}f", val, g)
 
@@ -278,9 +280,10 @@ class OzonMBase:
         is_session_model,
         tz,
         virtual_fields_parser,
+        as_virtual=False,
     ) -> tuple[CoreModel, ModelMaker]:
         mm = False
-        if not virtual:
+        if not virtual and not as_virtual:
             # if not in_execution:
             data = model.normalize_datetime_fields(tz, data)
             modelr = model(**data)
@@ -301,7 +304,7 @@ class OzonMBase:
             modelr.rec_name = f"{data_model}.{modelr.id}"
         return modelr, mm
 
-    async def load_data(self, data, in_execution=False):
+    async def load_data(self, data, as_virtual=False):
         if self.transform_config:
             self.tranform_data_value = self.transform_config.copy()
         self.modelr, self.mm = await self._load_data(
@@ -312,6 +315,7 @@ class OzonMBase:
             self.is_session_model,
             self.tz,
             self.virtual_fields_parser,
+            as_virtual=as_virtual,
         )
 
 
@@ -571,7 +575,9 @@ class OzonModelBase(OzonMBase):
         else:
             return await self.insert(self.modelr)
 
-    async def insert(self, record: CoreModel) -> Union[None, CoreModel]:
+    async def insert(
+        self, record: CoreModel, is_many=False
+    ) -> Union[None, CoreModel]:
         self.init_status()
         if not self.chk_write_permission():
             msg = _("Session is Readonly")
@@ -597,7 +603,8 @@ class OzonModelBase(OzonMBase):
 
             record.create_datetime = record.utc_now()
             record = self.set_user_data(record, self.user_session)
-            record.list_order = await self.count()
+            if not is_many:
+                record.list_order = await self.count()
             record.active = True
             data = record.get_dict(compute_datetime=False)
             if not self.virtual:
@@ -639,6 +646,21 @@ class OzonModelBase(OzonMBase):
                 _("Validation Error  %s ") % str(e), record.get_dict_copy()
             )
             return None
+
+    async def _insert(
+        self, record: CoreModel, count: int
+    ) -> Union[None, CoreModel]:
+        record.list_order = count
+        return await self.insert(record, is_many=True)
+
+    async def insert_many(
+        self, records: list[CoreModel]
+    ) -> list[Union[None, CoreModel]]:
+        start = await self.count()
+        results = await asyncio.gather(
+            *(self._insert(r, start + records.index(r)) for r in records)
+        )
+        return results
 
     async def copy(self, domain) -> Union[None, CoreModel]:
         self.init_status()
@@ -749,6 +771,13 @@ class OzonModelBase(OzonMBase):
             else:
                 return None
 
+    async def update_many(
+        self, records: list[CoreModel]
+    ) -> list[Union[None, CoreModel]]:
+
+        results = await asyncio.gather(*(self.update(r) for r in records))
+        return results
+
     async def remove(self, record: CoreModel) -> bool:
         self.init_status()
         if not self.chk_write_permission():
@@ -786,7 +815,7 @@ class OzonModelBase(OzonMBase):
         data = await self.load_raw(domain)
         if self.status.fail:
             return None
-        await self.load_data(data, in_execution=in_execution)
+        await self.load_data(data)
         return self.modelr
 
     async def load_raw(self, domain: dict) -> Union[None, dict]:
@@ -913,29 +942,22 @@ class OzonModelBase(OzonMBase):
         return datas
 
     async def aggregate(
-        self, pipeline: list, sort: str = "", limit=0, skip=0
+        self,
+        pipeline: list,
+        sort: str = "",
+        limit=0,
+        skip=0,
+        as_virtual=True,
     ) -> list[CoreModel]:
         datas = await self.aggregate_raw(
             pipeline, sort=sort, limit=limit, skip=skip
         )
         res = []
-        # for rec_data in datas:
-        #     # rec_data = json.loads(
-        #     #     json.dumps(rec_dat, cls=JsonEncoder, ensure_ascii=False)
-        #     # )
-        #     agg_mm = ModelMaker(
-        #         f"{self.data_model}.agg", tz=self.setting_app.tz
-        #     )
-        #     if "_id" in rec_data:
-        #         rec_data.pop("_id")
-        #     agg_mm.from_data_dict(rec_data)
-        #     agg_mm.new(),
-        #     res.append(agg_mm.instance)
-        if not self.virtual:
+        if not self.virtual and not as_virtual:
             return await self.process_all(datas)
         else:
             for rec in datas:
-                await self.load_data(rec)
+                await self.load_data(rec, as_virtual=as_virtual)
                 res.append(self.modelr)
             return res
         return res
