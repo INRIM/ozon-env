@@ -2,6 +2,7 @@
 # See LICENSE file for full licensing details.
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
@@ -14,11 +15,11 @@ from typing import Optional
 from typing import TypeVar, Generic, List, Dict
 from zoneinfo import ZoneInfo
 
+from bson import Decimal128
 from dateutil.parser import parse
 from pydantic import BaseModel, Field, field_serializer, AwareDatetime
 
 from ozonenv.core.db.BsonTypes import PyObjectId, bson, BsonEncoder
-from bson import ObjectId, Decimal128
 
 defaultdt = '1970-01-01T00:00:00+00:00'
 
@@ -608,6 +609,11 @@ class CoreModel(MainModel):
     @classmethod
     def model_depends(cls):
         return []
+
+    async def dump_model_async(self) -> str:
+        """Esegue model_dump_json() in modo async-safe."""
+        # model_dump_json è CPU-bound, quindi usiamo to_thread per non bloccare l'event loop
+        return await asyncio.to_thread(self.model_dump_json)
 
 
 class BasicModel(CoreModel):

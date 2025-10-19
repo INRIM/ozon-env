@@ -3,6 +3,7 @@ import copy
 import locale
 import logging
 import re
+import json
 from datetime import datetime, timedelta
 from typing import Any, Union
 
@@ -28,7 +29,7 @@ from ozonenv.core.ModelMaker import ModelMaker
 from ozonenv.core.ModelService import ModelService
 from ozonenv.core.exceptions import SessionException
 from ozonenv.core.i18n import _
-from ozonenv.core.utils import is_json
+from ozonenv.core.utils import is_json, traverse_and_convertd_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -447,6 +448,18 @@ class OzonModelBase(OzonMBase):
     async def by_name(self, name: str) -> CoreModel:
         return await self.load({'rec_name': name})
 
+    async def parallel_dump(self, models, max_concurrency=10):
+        sem = asyncio.Semaphore(max_concurrency)
+
+        async def worker(model):
+            async with sem:
+                return await model.dump_model_async()
+
+        tasks = [worker(m) for m in models]
+        json_list = await asyncio.gather(*tasks)
+        merged = "[" + ",".join(json_list) + "]"
+        return merged
+
     async def new(
         self,
         data: dict = None,
@@ -653,16 +666,22 @@ class OzonModelBase(OzonMBase):
         return await self.insert(record, is_many=True)
 
     async def insert_many(
-        self, records: list[CoreModel]
-    ) -> list[Union[None, CoreModel]]:
+        self, records: list[CoreModel], resp_type="model"
+    ) -> list[Union[None, CoreModel, dict]]:
         start = await self.count()
         results = await asyncio.gather(
             *(self._insert(r, start + records.index(r)) for r in records)
         )
+        if resp_type == "json":
+            results = await self.parallel_dump(results)
+        elif resp_type == "dict":
+            res = await self.parallel_dump(results)
+            results = json.loads(res)
         return results
 
     async def copy(self, domain) -> Union[None, CoreModel]:
         self.init_status()
+        domain = traverse_and_convertd_datetime(domain)
         if not self.chk_write_permission():
             msg = _("Session is Readonly")
             self.error_status(msg, data={})
@@ -776,7 +795,10 @@ class OzonModelBase(OzonMBase):
                 return None
 
     async def update_many(
-        self, records: list[CoreModel], force_update_whole_record=False
+        self,
+        records: list[CoreModel],
+        force_update_whole_record=False,
+        resp_type="model",
     ) -> list[Union[None, CoreModel]]:
 
         results = await asyncio.gather(
@@ -787,6 +809,11 @@ class OzonModelBase(OzonMBase):
                 for r in records
             )
         )
+        if resp_type == "json":
+            results = await self.parallel_dump(results)
+        elif resp_type == "dict":
+            res = await self.parallel_dump(results)
+            results = json.loads(res)
         return results
 
     async def remove(self, record: CoreModel) -> bool:
@@ -806,6 +833,7 @@ class OzonModelBase(OzonMBase):
 
     async def remove_all(self, domain) -> int:
         self.init_status()
+        domain = traverse_and_convertd_datetime(domain)
         if not self.chk_write_permission():
             msg = _("Session is Readonly")
             self.error_status(msg, data={})
@@ -831,6 +859,7 @@ class OzonModelBase(OzonMBase):
 
     async def load_raw(self, domain: dict) -> Union[None, dict]:
         self.init_status()
+        domain = traverse_and_convertd_datetime(domain)
         if self.virtual and not self.data_model:
             msg = _(
                 "Data Model is required for virtual model to get data from db"
@@ -871,7 +900,13 @@ class OzonModelBase(OzonMBase):
         return results
 
     async def find(
-        self, domain: dict, sort: str = "", limit=0, skip=0, pipeline_items=[]
+        self,
+        domain: dict,
+        sort: str = "",
+        limit=0,
+        skip=0,
+        pipeline_items=[],
+        resp_type="model",
     ) -> list[Any]:
         datas = await self.find_raw(
             domain,
@@ -881,14 +916,19 @@ class OzonModelBase(OzonMBase):
             pipeline_items=pipeline_items,
             fields={},
         )
-        res = []
+        results = []
         if not self.virtual:
-            return await self.process_all(datas)
+            results = await self.process_all(datas)
         else:
             for rec in datas:
                 await self.load_data(rec)
-                res.append(self.modelr)
-            return res
+                results.append(self.modelr)
+        if resp_type == "json":
+            results = await self.parallel_dump(results)
+        elif resp_type == "dict":
+            res = await self.parallel_dump(results)
+            results = json.loads(res)
+        return results
 
     async def find_raw(
         self,
@@ -900,6 +940,7 @@ class OzonModelBase(OzonMBase):
         fields={},
     ) -> list[Any]:
         self.init_status()
+        domain = traverse_and_convertd_datetime(domain)
         if self.virtual and not self.data_model:
             msg = _(
                 "Data Model is required for virtual model to get data from db"
@@ -942,6 +983,7 @@ class OzonModelBase(OzonMBase):
     async def aggregate_raw(
         self, pipeline: list, sort: str = "", limit=0, skip=0
     ) -> list[Any]:
+        pipeline = traverse_and_convertd_datetime(pipeline)
         if sort:
             _sort = self.eval_sort_str(sort)
             pipeline.append({"$sort": _sort})
@@ -959,22 +1001,28 @@ class OzonModelBase(OzonMBase):
         limit=0,
         skip=0,
         as_virtual=True,
+        resp_type="model",
     ) -> list[CoreModel]:
         datas = await self.aggregate_raw(
             pipeline, sort=sort, limit=limit, skip=skip
         )
-        res = []
+        results = []
         if not self.virtual and not as_virtual:
-            return await self.process_all(datas)
+            results = await self.process_all(datas)
         else:
             for rec in datas:
                 await self.load_data(rec, as_virtual=as_virtual)
-                res.append(self.modelr)
-            return res
-        return res
+                results.append(self.modelr)
+        if resp_type == "json":
+            results = await self.parallel_dump(results)
+        elif resp_type == "dict":
+            res = await self.parallel_dump(results)
+            results = json.loads(res)
+        return results
 
     async def distinct(self, field_name: str, query: dict) -> list[Any]:
         self.init_status()
+        query = traverse_and_convertd_datetime(query)
         if self.virtual and not self.data_model:
             msg = _(
                 "Data Model is required for virtual model to get data from db"
@@ -996,6 +1044,7 @@ class OzonModelBase(OzonMBase):
         raw_result=False,
     ) -> list[Any]:
         self.init_status()
+        query = traverse_and_convertd_datetime(query)
         if self.virtual and not self.data_model:
             msg = _(
                 "Data Model is required for virtual model to get data from db"

@@ -5,6 +5,8 @@ import aiofiles
 import aiofiles.os
 import json
 import httpx
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 
 async def read_json_file(file_path):
@@ -59,3 +61,41 @@ def is_json(str_test):
 def log_truncate(value, maxlen=20):
     text = str(value)
     return text if len(text) <= maxlen else text[: maxlen - 3] + "..."
+
+
+ISO_DATE_RE = re.compile(
+    r'^\d{4}-\d{2}-\d{2}([T\s]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)?)?$'
+)
+
+
+def safe_parse_datetime(value: str):
+    """Tenta di convertire una stringa ISO8601 in datetime, in modo tollerante."""
+    if not isinstance(value, str):
+        return value
+    if not ISO_DATE_RE.match(value):
+        return value
+    try:
+        # supporta sia con Z che con offset
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt.astimezone(ZoneInfo("UTC"))
+    except ValueError:
+        # fallback: nessun parsing riuscito → restituisci originale
+        return value
+
+
+def traverse_and_convertd_datetime(obj):
+    """
+    Attraversa ricorsivamente dict, list, tuple, set, convertendo stringhe data/ora in datetime.
+    """
+    if isinstance(obj, dict):
+        return {k: traverse_and_convertd_datetime(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [traverse_and_convertd_datetime(i) for i in obj]
+    elif isinstance(obj, tuple):
+        return tuple(traverse_and_convertd_datetime(i) for i in obj)
+    elif isinstance(obj, set):
+        return {traverse_and_convertd_datetime(i) for i in obj}
+    elif isinstance(obj, str):
+        return safe_parse_datetime(obj)
+    else:
+        return obj

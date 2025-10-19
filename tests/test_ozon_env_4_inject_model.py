@@ -2,6 +2,7 @@ from ozonenv.OzonEnv import OzonEnv
 from ozonenv.core.BaseModels import CoreModel
 from ozonenv.core.exceptions import SessionException
 from test_common import *
+from datetime import datetime
 
 pytestmark = pytest.mark.asyncio
 
@@ -136,7 +137,18 @@ async def test_add_component_resource_1_product():
     assert isinstance(product, CoreModel)
     assert product.label == "Product2"
     assert product.price == 20.1
+    assert type(product.create_datetime) == datetime
     # add list prduct and test find/ and distinct
+    products = await product_model.find(
+        product_model.get_domain(), sort="list_order:asc", resp_type="json"
+    )
+    assert type(products) == str
+    products = await product_model.find(
+        product_model.get_domain(), sort="list_order:asc", resp_type="dict"
+    )
+    assert type(products) == list
+    assert type(products[1]) == dict
+    assert type(products[0].get("create_datetime")) == str
     await env.close_env()
 
 

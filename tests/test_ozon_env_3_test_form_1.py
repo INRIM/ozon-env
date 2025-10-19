@@ -1,9 +1,6 @@
 import time as time_
 from datetime import *
 
-import iso8601
-from dateutil.parser import *
-
 from ozonenv.OzonEnv import OzonEnv
 from ozonenv.core.BaseModels import defaultdt, CoreModel
 from ozonenv.core.exceptions import SessionException
@@ -86,6 +83,7 @@ async def test_component_test_form_1_init():
     component = await env.insert_update_component(data)
     assert component.owner_uid == "admin"
     assert component.rec_name == "test_form_1"
+    assert hasattr(component, "content") is False
     assert component.update_datetime == BasicModel.default_datetime()
     assert len(component.get('components')) == 10
     assert (
@@ -131,6 +129,7 @@ async def test_component_test_form_0_1_init_ok():
         test_form_1_in.data_value["appointmentDateTime"]
         == "25/05/2022 13:30:00"
     )
+    assert hasattr(test_form_1_in, "content") is False
     await env.close_env()
 
 @pytestmark
@@ -153,6 +152,9 @@ async def test_component_test_form_1_raw_update():
     assert component.rec_name == "test_form_1"
     assert not component.update_datetime == BasicModel.default_datetime()
     assert len(component.get('components')) == 11
+    data = await readfilejson('data', 'test_form_1.0_formio_schema.json')
+    component = await env.get('component').new(data=data)
+    await env.get('component').upsert(component)
     await env.close_env()
 
 
