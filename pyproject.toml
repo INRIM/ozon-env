@@ -6,7 +6,9 @@ description = "Ozon Env API"
 readme = "README.md"
 authors = ["Alessio Gerace <alessio.gerace@gmail.com>"]
 license = "MIT"
-packages = [{ include = "ozonenv/**/*.py" }]
+packages = [
+    { include = "ozonenv" }
+]
 include = [
     "ozonenv/core/custom_templates/**/*"
 ]
