@@ -12,10 +12,10 @@ an alias for Bar: every pydantic model class consumes considerable memory. #}
 
 {% if class_name.endswith('Row') %}
      {% if not imported_base_row %}
-         from ozonenv.core.BaseModels import BaseModel
+from ozonenv.core.BaseModels import BaseModel
         {% set imported_base_row = true %}
     {% endif %}
-    class {{ class_name }}(BaseModel):
+class {{ class_name }}(BaseModel):
 {% else %}
 class {{ class_name }}({{ base_class }}):{% if comment is defined %}  # {{ comment }}{% endif %}
 {% endif %}
