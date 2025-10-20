@@ -1,15 +1,18 @@
 [tool.poetry]
 name = "ozon-env"
-version = "3.1.18"
+version = "3.1.19"
 homepage = "https://github.com/archetipo/ozon-env"
 description = "Ozon Env API"
 readme = "README.md"
 authors = ["Alessio Gerace <alessio.gerace@gmail.com>"]
 license = "MIT"
 packages = [{ include = "ozonenv/**/*.py" }]
+include = [
+    "ozonenv/core/custom_templates/**/*"
+]
 exclude = ["tests/*"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Natural Language :: English",
     "License :: OSI Approved :: MIT License",
     'Programming Language :: Python :: 3',

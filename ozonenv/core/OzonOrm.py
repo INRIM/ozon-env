@@ -536,11 +536,16 @@ class OzonOrm:
         if not cmd.startswith("datamodel-codegen --input"):
             return
         res = True
+        env = os.environ.copy()
+        env["PYTHONPATH"] = f"{os.getcwd()}:{env.get('PYTHONPATH', '')}"
         proc = await asyncio.create_subprocess_shell(
-            cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
 
-        await proc.communicate()
+        stdout, stderr = await proc.communicate()
 
         logger.info(f"[{cmd!r} exited with {proc.returncode}]")
 
