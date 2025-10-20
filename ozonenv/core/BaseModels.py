@@ -403,6 +403,7 @@ class MainModel(BaseModel):
         "arbitrary_types_allowed": True,
         "alias_generator": lambda f_name: f_name.replace(".", "_"),
         "tz_aware": True,
+        "ignored_types": (type(BaseModel),),
     }
 
 
