@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, date, time
 from functools import reduce
-from typing import Optional
+from typing import Optional, get_origin, get_args
 from typing import TypeVar, Generic, List, Dict
 from zoneinfo import ZoneInfo
 
@@ -20,6 +20,7 @@ from dateutil.parser import parse
 from pydantic import BaseModel, Field, field_serializer, AwareDatetime
 
 from ozonenv.core.db.BsonTypes import PyObjectId, bson, BsonEncoder
+from ozonenv.core.utils import unwrap_optional
 
 defaultdt = '1970-01-01T00:00:00+00:00'
 
@@ -323,80 +324,110 @@ class MainModel(BaseModel):
     @classmethod
     def normalize_datetime_fields(cls, tz: str, dati: dict) -> dict:
         """
-        Controlla tutti i campi datetime del model:
+        Controlla tutti i campi datetime del model (inclusi nested model):
           - se il valore è naive, assume che sia in self.tz
           - lo converte in UTC e aggiorna il dizionario
         Ritorna il dizionario modificato
         """
         tz_base = ZoneInfo(tz)
 
-        for name, field in cls.model_fields.items():
-            if field.annotation in (
-                datetime,
-                AwareDatetime,
-                Optional[AwareDatetime],
-            ):
-                dttype = (
-                    cls.datetime_fields()
-                    .get(name, {})
-                    .get("transform", {})
-                    .get("type", "datetime")
-                )
-                if name not in dati:
-                    continue
-                raw_value = dati[name]
+        def _normalize_model_fields(
+            model: type[BaseModel], mdata: dict
+        ) -> dict:
+            for name, field in model.model_fields.items():
 
-                if raw_value is None:
+                if name not in mdata:
                     continue
 
-                # parsing
-                if isinstance(raw_value, str):
-                    try:
-                        value = datetime.fromisoformat(raw_value)
-                    except ValueError:
-                        value = BasicModel.default_datetime()
-                elif isinstance(raw_value, datetime):
-                    value = raw_value
-                elif isinstance(raw_value, date):
-                    value = datetime.combine(raw_value, time.min)
-                else:
-                    continue
+                raw_value = mdata[name]
+                actual_type = unwrap_optional(field.annotation)
 
-                # --- CASO DATE ---
-                if dttype == "date":
-                    value = datetime(
-                        value.year,
-                        value.month,
-                        value.day,
-                        tzinfo=ZoneInfo("UTC"),
+                # --- Single nested Pydantic model ---
+                if isinstance(raw_value, dict) and hasattr(
+                    actual_type, "model_fields"
+                ):
+                    nested_result = _normalize_model_fields(
+                        actual_type, raw_value
                     )
-                    dati[name] = value
+                    mdata[name] = nested_result
                     continue
 
-                # --- CASO DATETIME ---
-                if value.tzinfo is None:
-                    value = value.replace(tzinfo=tz_base)
+                # --- List/Tuple of nested Pydantic models ---
+                origin = get_origin(actual_type)
+                args = get_args(actual_type)
+                if origin in (list, tuple) and args:
+                    elem_type = unwrap_optional(args[0])
+                    if isinstance(raw_value, list) and hasattr(
+                        elem_type, "model_fields"
+                    ):
+                        for idx, item in enumerate(raw_value):
+                            if isinstance(item, dict):
+                                el_data = _normalize_model_fields(
+                                    elem_type, item
+                                )
+                                mdata[name][idx] = el_data
+                        continue
 
-                utc_value = value.astimezone(ZoneInfo("UTC"))
-                dati[name] = utc_value
-            elif field.annotation in [int, Optional[int]]:
-                if name not in dati:
-                    continue
-                if type(dati[name]) is str:
-                    try:
-                        dati[name] = int(dati[name])
-                    except ValueError:
-                        dati[name] = 0
-            elif field.annotation in [float, Optional[float]]:
-                if name not in dati:
-                    continue
-                if type(dati[name]) in [Decimal128, str]:
-                    try:
-                        dati[name] = float(str(dati[name]))
-                    except ValueError:
-                        dati[name] = 0.0
+                if field.annotation in (
+                    datetime,
+                    AwareDatetime,
+                    Optional[AwareDatetime],
+                ):
+                    dttype = (
+                        cls.datetime_fields()
+                        .get(name, {})
+                        .get("transform", {})
+                        .get("type", "datetime")
+                    )
 
-        return dati
+                    if raw_value is None:
+                        continue
+
+                    # parsing
+                    if isinstance(raw_value, str):
+                        try:
+                            value = datetime.fromisoformat(raw_value)
+                        except ValueError:
+                            value = BasicModel.default_datetime()
+                    elif isinstance(raw_value, datetime):
+                        value = raw_value
+                    elif isinstance(raw_value, date):
+                        value = datetime.combine(raw_value, time.min)
+                    else:
+                        continue
+
+                    # --- CASO DATE ---
+                    if dttype == "date":
+                        value = datetime(
+                            value.year,
+                            value.month,
+                            value.day,
+                            tzinfo=ZoneInfo("UTC"),
+                        )
+                        mdata[name] = value
+                        continue
+
+                    # --- CASO DATETIME ---
+                    if value.tzinfo is None:
+                        value = value.replace(tzinfo=tz_base)
+
+                    utc_value = value.astimezone(ZoneInfo("UTC"))
+                    mdata[name] = utc_value
+                elif field.annotation in [int, Optional[int]]:
+                    if type(raw_value) is str:
+                        try:
+                            mdata[name] = int(raw_value)
+                        except ValueError:
+                            mdata[name] = 0
+                elif field.annotation in [float, Optional[float]]:
+                    if type(raw_value) in [Decimal128, str]:
+                        try:
+                            mdata[name] = float(str(raw_value))
+                        except ValueError:
+                            mdata[name] = 0.0
+            return mdata
+
+        return _normalize_model_fields(cls, dati)
 
     model_config = {
         "populate_by_name": True,
@@ -405,6 +436,10 @@ class MainModel(BaseModel):
         "tz_aware": True,
         "ignored_types": (type(BaseModel),),
     }
+
+
+class CoreNestedModel(MainModel):
+    data_value: dict = Field(default_factory=dict)
 
 
 class CoreModel(MainModel):

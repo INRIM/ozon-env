@@ -2,12 +2,13 @@ import json
 import locale
 from dataclasses import field
 from datetime import datetime
-from typing import Union, Any, Optional, List
+from typing import Union, Any, Optional, List, get_origin, get_args
 
-from pydantic import AwareDatetime
+from pydantic import AwareDatetime, BaseModel
 
 from ozonenv.core.BaseModels import CoreModel, defaultdt
 from ozonenv.core.DateEngine import DateEngine
+from ozonenv.core.utils import unwrap_optional
 
 
 # from ozonenv.core.OzonOrm import OzonOrm
@@ -147,34 +148,76 @@ class ModelService:
         return data_value.copy()
 
     async def compute_data_value(self, dati: dict, pdata_value: dict = None):
-        data_value = {}
-        if pdata_value is not None:
-            data_value = pdata_value.copy()
-        for name, field in self.model.model_fields.items():
-            if name not in dati:
-                continue
-            if field.annotation in (
-                datetime,
-                AwareDatetime,
-                Optional[AwareDatetime],
-            ):
-                res = self.eval_datetime(dati.get(name, defaultdt), name)
+        data_value = pdata_value.copy() if pdata_value else {}
 
-                data_value = self.check_update_data_value(
-                    name, data_value, res
-                )
+        async def _compute_model_fields(
+            model: BaseModel, input_data: dict
+        ) -> dict:
+            local_data_value = {}
 
-            elif field.annotation in (float, Optional[float]):
-                res = self.eval_float(dati.get(name, 0.0), name)
-                data_value = self.check_update_data_value(
-                    name, data_value, res
-                )
+            for name, field in model.model_fields.items():
+                if name not in input_data:
+                    continue
 
-            elif name in self.model.select_fields():
-                res = await self.eval_select(name, dati[name])
-                data_value = self.check_update_data_value(
-                    name, data_value, res
-                )
+                raw_value = input_data[name]
+                actual_type = unwrap_optional(field.annotation)
 
+                # --- Single nested Pydantic model ---
+                if isinstance(raw_value, dict) and hasattr(
+                    actual_type, "model_fields"
+                ):
+                    nested_result = await _compute_model_fields(
+                        actual_type, raw_value
+                    )
+                    input_data[name]["data_value"] = nested_result
+                    continue
+
+                # --- List/Tuple of nested Pydantic models ---
+                origin = get_origin(actual_type)
+                args = get_args(actual_type)
+                if origin in (list, tuple) and args:
+                    elem_type = unwrap_optional(args[0])
+                    if isinstance(raw_value, list) and hasattr(
+                        elem_type, "model_fields"
+                    ):
+                        for idx, item in enumerate(raw_value):
+                            if isinstance(item, dict):
+                                el_dv = await _compute_model_fields(
+                                    elem_type, item
+                                )
+                                input_data[name][idx]["data_value"] = el_dv
+                        continue
+
+                # --- EXISTING LOGIC for primitive fields ---
+                if field.annotation in (
+                    datetime,
+                    AwareDatetime,
+                    Optional[AwareDatetime],
+                ):
+                    res = self.eval_datetime(
+                        input_data.get(name, defaultdt), name
+                    )
+                    local_data_value = self.check_update_data_value(
+                        name, local_data_value, res
+                    )
+
+                elif field.annotation in (float, Optional[float]):
+                    res = self.eval_float(input_data.get(name, 0.0), name)
+                    local_data_value = self.check_update_data_value(
+                        name, local_data_value, res
+                    )
+
+                elif (
+                    hasattr(model, "select_fields")
+                    and name in model.select_fields()
+                ):
+                    res = await self.eval_select(name, input_data[name])
+                    local_data_value = self.check_update_data_value(
+                        name, local_data_value, res
+                    )
+
+            return local_data_value
+
+        data_value.update(await _compute_model_fields(self.model, dati))
         dati["data_value"] = data_value
         return dati.copy()

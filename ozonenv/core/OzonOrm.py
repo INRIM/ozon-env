@@ -583,6 +583,7 @@ class OzonOrm:
             f" --input-file-type jsonschema "
             f" --output {self.models_path}/{mod.name}.py "
             f" --custom-template-dir {C_TEMPLATE_DIR} "
+            f" --additional-imports \"ozonenv.core.BaseModels.CoreNestedModel\" "
             f" --output-model-type pydantic_v2.BaseModel "
             f" --use-standard-collections "
             f"--base-class ozonenv.core.BaseModels.BasicModel"

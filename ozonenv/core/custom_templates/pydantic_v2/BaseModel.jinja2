@@ -1,5 +1,4 @@
 {% if base_class != "BaseModel" and "," not in base_class and not fields and not config -%}
-{% set imported_base_row = false %}
 {# if this is just going to be `class Foo(Bar): pass`, then might as well just make Foo
 an alias for Bar: every pydantic model class consumes considerable memory. #}
 {{ class_name }} = {{ base_class }}
@@ -11,11 +10,7 @@ an alias for Bar: every pydantic model class consumes considerable memory. #}
 {% endfor -%}
 
 {% if class_name.endswith('Row') %}
-     {% if not imported_base_row %}
-from ozonenv.core.BaseModels import BaseModel
-        {% set imported_base_row = true %}
-    {% endif %}
-class {{ class_name }}(BaseModel):
+class {{ class_name }}(CoreNestedModel):
 {% else %}
 class {{ class_name }}({{ base_class }}):{% if comment is defined %}  # {{ comment }}{% endif %}
 {% endif %}
