@@ -64,7 +64,7 @@ class ModelService:
             for i in value:
                 vals = [opt['label'] for opt in options if opt['value'] == i]
                 vals and res.append(vals[0])
-            return res
+            return ", ".join(res)
 
     async def select_url_values(
         self, select: dict, value: Union[str, list]
@@ -159,9 +159,11 @@ class ModelService:
         data_value = pdata_value.copy() if pdata_value else {}
 
         async def _compute_model_fields(
-            model: MainModel, input_data: dict, nested_field: str = None
+            model: MainModel,
+            input_data: dict,
+            local_data_value: dict,
+            nested_field: str = None,
         ) -> dict:
-            local_data_value = {}
 
             for name, field in model.model_fields.items():
                 if name not in input_data:
@@ -174,8 +176,9 @@ class ModelService:
                 if isinstance(raw_value, dict) and hasattr(
                     actual_type, "model_fields"
                 ):
+                    actual_dv = raw_value.get("data_value", {})
                     nested_result = await _compute_model_fields(
-                        actual_type, raw_value, name
+                        actual_type, raw_value, actual_dv, name
                     )
                     input_data[name]["data_value"] = nested_result
                     continue
@@ -190,8 +193,9 @@ class ModelService:
                     ):
                         for idx, item in enumerate(raw_value):
                             if isinstance(item, dict):
+                                actual_dv = item.get("data_value", {})
                                 el_dv = await _compute_model_fields(
-                                    elem_type, item, name
+                                    elem_type, item, actual_dv, name
                                 )
                                 input_data[name][idx]["data_value"] = el_dv
                         continue
@@ -242,6 +246,8 @@ class ModelService:
 
             return local_data_value
 
-        data_value.update(await _compute_model_fields(self.model, dati))
+        data_value.update(
+            await _compute_model_fields(self.model, dati, data_value)
+        )
         dati["data_value"] = data_value
         return dati.copy()

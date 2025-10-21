@@ -174,7 +174,7 @@ class MockWorker1(OzonWorkerEnv):
             assert row_upd.rec_name == f"{v_doc.rec_name}.{row.nrRiga}"
             assert row_upd.tipologia == ["a", "c"]
             assert row_upd.data_value.get('stato') == "Fatto"
-            assert row_upd.data_value.get('tipologia') == ["A", "C"]
+            assert row_upd.data_value.get('tipologia') == "A, C"
             assert row_upd.get('data_value.parent') == '8 - 2022'
             assert row_db.list_order == id
 
@@ -294,7 +294,7 @@ class MockWorker2(MockWorker1):
             assert row_upd.tipologia == ["a", "c"]
             assert row_upd.stato == "fatto"
             assert row_upd.data_value.get('stato') == "Fatto"
-            assert row_upd.data_value.get('tipologia') == ["A", "C"]
+            assert row_upd.data_value.get('tipologia') == "A, C"
 
         documento = await self.virtual_doc_model.insert(v_doc)
 

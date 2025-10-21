@@ -111,6 +111,8 @@ async def test_component_test_form_0_1_init_ok():
             "howManySeats": 4,
         }
     )
+    test_form_1_in.selection_value("favouriteSeason", "autumn", "Autunno")
+    test_form_1_in.selection_value("favouriteFood", ["mexican", "chinese"], "Messicano, Cinese")
 
     test_form_1_in = await test_form_1_model.insert(test_form_1_in)
 
@@ -130,6 +132,10 @@ async def test_component_test_form_0_1_init_ok():
         == "25/05/2022 13:30:00"
     )
     assert hasattr(test_form_1_in, "content") is False
+    assert test_form_1_in.favouriteSeason == "autumn"
+    assert test_form_1_in.data_value["favouriteSeason"] == "Autumn"
+    assert test_form_1_in.favouriteFood == ["mexican", "chinese"]
+    assert test_form_1_in.data_value["favouriteFood"] == "Mexican, Chinese"
     await env.close_env()
 
 @pytestmark
@@ -356,7 +362,7 @@ async def test_test_form_1_update_record():
     )
     assert test_form_1_upd.get('data_value.appointmentDateTime') == "25/05/2022 13:30:00"
     assert test_form_1_upd.get('data_value.birthdate') == "18/12/1987"
-    assert test_form_1_upd.get('data_value.favouriteFood') == ["Mexican", "Chinese"]
+    assert test_form_1_upd.get('data_value.favouriteFood') == "Mexican, Chinese"
 
     # Aggiorna la data con un oggetto datetime.date
     test_form_1_upd.birthdate = CoreModel.iso_to_utc("1987-12-18T00:00:00Z").date()
