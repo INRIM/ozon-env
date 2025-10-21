@@ -44,7 +44,12 @@ async def test_make_form_schema():
     assert test_2.instance.email == 'name@company.it'
     assert len(test_2.instance.dataGrid) == 2
     assert test_2.instance.dataGrid[0].textField == 'abc'
+    assert test_2.instance.dataGrid[0].birthdate == BasicModel.iso_to_utc("1987-12-17T00:00:00Z")
+    assert test_2.instance.dataGrid[0].appointmentDateTime == BasicModel.default_datetime()
     assert test_2.instance.dataGrid[1].textField == 'def'
+    assert test_2.instance.dataGrid[1].birthdate == BasicModel.iso_to_utc("1990-01-01T00:00:00Z")
+    assert test_2.instance.dataGrid[1].appointmentDateTime == BasicModel.default_datetime()
+    assert test_2.instance.dataGrid2 == []
     assert test_2.instance.survey[
                'howWouldYouRateTheFormIoPlatform'] == 'excellent'
 

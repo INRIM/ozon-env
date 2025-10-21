@@ -174,7 +174,7 @@ async def test_component_test_form_1_update():
     component = await env.insert_update_component(data_schema)
     assert component.owner_uid == "admin"
     assert component.rec_name == "test_form_1"
-    assert len(component.get('components')) == 12
+    assert len(component.get('components')) == 13
     test_form_1_model = env.get('test_form_1')
     test_form_1 = await test_form_1_model.new({})
     assert hasattr(test_form_1, "uploadBase64") is True
@@ -193,7 +193,7 @@ async def test_component_test_form_1_load():
     await env.session_app()
     component = await env.get('component').load({"rec_name": 'test_form_1'})
     assert component.owner_uid == "admin"
-    assert len(component.components) == 12
+    assert len(component.components) == 13
     assert component.get(f'components.{3}.label') == "Panel"
     await env.close_env()
 
@@ -360,10 +360,35 @@ async def test_test_form_1_update_record():
 
     # Aggiorna la data con un oggetto datetime.date
     test_form_1_upd.birthdate = CoreModel.iso_to_utc("1987-12-18T00:00:00Z").date()
+    test_form_1_upd.dataGrid = [{
+        "textField": "abc123",
+        "birthdate": "1990-12-31",
+        "appointmentDateTime": "2000-01-01 21:00:00",
+        "checkbox": False
+    }]
+    test_form_1_upd.dataGrid2 = [{
+        "textField": "zyx",
+        "birthdate": "2000-01-01T00:00:00Z",
+        "appointmentDateTime": "2000-12-31T00:00:00+01:00",
+        "checkbox": False
+    }]
     test_form_1_upd = await test_form_1_model.update(test_form_1_upd)
 
     assert type(test_form_1_upd.birthdate) == datetime
     assert test_form_1_upd.birthdate == CoreModel.iso_to_utc("1987-12-18T00:00:00Z")
     assert test_form_1_upd.data_value.get("birthdate") == "18/12/1987"
+    assert len(test_form_1_upd.dataGrid) == 1
+    assert test_form_1_upd.dataGrid[0].birthdate == CoreModel.iso_to_utc("1990-12-31T00:00:00Z")
+    assert test_form_1_upd.dataGrid[0].appointmentDateTime == CoreModel.iso_to_utc("2000-01-01T21:00:00+01:00")
+    assert test_form_1_upd.dataGrid[0].data_value != {}
+    assert test_form_1_upd.dataGrid[0].data_value["birthdate"] == "31/12/1990"
+    assert test_form_1_upd.dataGrid[0].data_value["appointmentDateTime"] == "01/01/2000 21:00:00"
+    assert len(test_form_1_upd.dataGrid2) == 1
+    assert test_form_1_upd.dataGrid2[0].birthdate == CoreModel.iso_to_utc("2000-01-01T00:00:00Z")
+    assert test_form_1_upd.dataGrid2[0].appointmentDateTime == CoreModel.iso_to_utc("2000-12-31T00:00:00+01:00")
+    assert test_form_1_upd.dataGrid2[0].data_value != {}
+    assert test_form_1_upd.dataGrid2[0].data_value["birthdate"] == "01/01/2000"
+    assert test_form_1_upd.dataGrid2[0].data_value["appointmentDateTime"] == "31/12/2000 00:00:00"
+
 
     await env.close_env()

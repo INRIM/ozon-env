@@ -28,10 +28,12 @@
   "dataGrid": [
     {
       "textField": "abc",
+      "birthdate": "1987-12-17T00:00:00Z",
       "checkbox": true
     },
     {
       "textField": "def",
+      "birthdate": "1990-01-01T00:00:00Z",
       "checkbox": false
     }
   ],
