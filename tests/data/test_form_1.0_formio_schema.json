@@ -2343,7 +2343,7 @@
             "maxDate": null
           },
           "enableMaxDateInput": false,
-          "key": "birthdate",
+          "key": "birthdateDg",
           "type": "datetime",
           "input": true,
           "widget": {
@@ -2437,6 +2437,119 @@
           },
           "customOptions": null,
           "id": "eszvmi3_dg"
+        },
+        {
+          "label": "Favourite Season",
+          "widget": "choicesjs",
+          "tableView": true,
+          "data": {
+            "values": [
+              {
+                "label": "Spring",
+                "value": "spring"
+              },
+              {
+                "label": "Summer",
+                "value": "summer"
+              },
+              {
+                "label": "Autumn",
+                "value": "autumn"
+              },
+              {
+                "label": "Winter",
+                "value": "winter"
+              }
+            ],
+            "json": "",
+            "url": "",
+            "resource": "",
+            "custom": ""
+          },
+          "selectThreshold": 0.3,
+          "calculateServer": false,
+          "key": "favouriteSeasonDg",
+          "type": "select",
+          "indexeddb": {
+            "filter": null
+          },
+          "input": true,
+          "placeholder": "",
+          "prefix": "",
+          "customClass": "",
+          "suffix": "",
+          "multiple": false,
+          "defaultValue": null,
+          "protected": false,
+          "unique": false,
+          "persistent": true,
+          "hidden": false,
+          "clearOnHide": true,
+          "refreshOn": "",
+          "redrawOn": "",
+          "modalEdit": false,
+          "labelPosition": "top",
+          "description": "",
+          "errorLabel": "",
+          "tooltip": "",
+          "hideLabel": false,
+          "tabindex": "",
+          "disabled": false,
+          "autofocus": false,
+          "dbIndex": false,
+          "customDefaultValue": "",
+          "calculateValue": "",
+          "attributes": null,
+          "validateOn": "change",
+          "validate": {
+            "required": false,
+            "custom": "",
+            "customPrivate": false,
+            "strictDateValidation": false,
+            "multiple": false,
+            "unique": false
+          },
+          "conditional": {
+            "show": null,
+            "when": null,
+            "eq": ""
+          },
+          "overlay": {
+            "style": "",
+            "left": "",
+            "top": "",
+            "width": "",
+            "height": ""
+          },
+          "allowCalculateOverride": false,
+          "encrypted": false,
+          "showCharCount": false,
+          "showWordCount": false,
+          "properties": {},
+          "allowMultipleMasks": false,
+          "clearOnRefresh": false,
+          "limit": 100,
+          "dataSrc": "values",
+          "valueProperty": "",
+          "lazyLoad": true,
+          "filter": "",
+          "searchEnabled": true,
+          "searchField": "",
+          "minSearch": 0,
+          "readOnlyValue": false,
+          "authenticate": false,
+          "template": "<span>{{ item.label }}</span>",
+          "selectFields": "",
+          "searchThreshold": 0.3,
+          "fuseOptions": {
+            "include": "score",
+            "threshold": 0.3
+          },
+          "customOptions": null,
+          "id": "eo69g8a_dg",
+          "idPath": "id",
+          "uniqueOptions": false,
+          "useExactSearch": false
         }
       ],
       "id": "eb22m1u"

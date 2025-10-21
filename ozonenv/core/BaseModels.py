@@ -322,6 +322,14 @@ class MainModel(BaseModel):
         return {}
 
     @classmethod
+    def nested_datetime_fields(cls):
+        return {}
+
+    @classmethod
+    def nested_transform_data_value(cls):
+        return {}
+
+    @classmethod
     def normalize_datetime_fields(cls, tz: str, dati: dict) -> dict:
         """
         Controlla tutti i campi datetime del model (inclusi nested model):
@@ -332,7 +340,7 @@ class MainModel(BaseModel):
         tz_base = ZoneInfo(tz)
 
         def _normalize_model_fields(
-            model: type[BaseModel], mdata: dict
+            model: type[MainModel], mdata: dict, nested_field: str = None
         ) -> dict:
             for name, field in model.model_fields.items():
 
@@ -347,7 +355,7 @@ class MainModel(BaseModel):
                     actual_type, "model_fields"
                 ):
                     nested_result = _normalize_model_fields(
-                        actual_type, raw_value
+                        actual_type, raw_value, name
                     )
                     mdata[name] = nested_result
                     continue
@@ -360,10 +368,11 @@ class MainModel(BaseModel):
                     if isinstance(raw_value, list) and hasattr(
                         elem_type, "model_fields"
                     ):
+                        # datagrid
                         for idx, item in enumerate(raw_value):
                             if isinstance(item, dict):
                                 el_data = _normalize_model_fields(
-                                    elem_type, item
+                                    elem_type, item, name
                                 )
                                 mdata[name][idx] = el_data
                         continue
@@ -373,12 +382,21 @@ class MainModel(BaseModel):
                     AwareDatetime,
                     Optional[AwareDatetime],
                 ):
-                    dttype = (
-                        cls.datetime_fields()
-                        .get(name, {})
-                        .get("transform", {})
-                        .get("type", "datetime")
-                    )
+                    if nested_field:
+                        dttype = (
+                            cls.nested_datetime_fields()
+                            .get(nested_field, {})
+                            .get(name, {})
+                            .get("transform", {})
+                            .get("type", "datetime")
+                        )
+                    else:
+                        dttype = (
+                            model.datetime_fields()
+                            .get(name, {})
+                            .get("transform", {})
+                            .get("type", "datetime")
+                        )
 
                     if raw_value is None:
                         continue

@@ -690,6 +690,15 @@ class OzonOrm:
     @classmethod
     def model_depends(cls):
         return {mod.mm.model_depends}
+        
+    @classmethod
+    def nested_datetime_fields(cls):
+        return {mod.mm.nested_datetime_fields}
+        
+    @classmethod
+    def nested_transform_data_value(cls):
+        return {mod.mm.nested_transform_data_value}
+        
 
 """
         async with aiofiles.open(
