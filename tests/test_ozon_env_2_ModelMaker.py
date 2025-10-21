@@ -33,6 +33,66 @@ async def test_make_form_schema():
     assert test_2.unique_fields == ["rec_name", "firstName"]
     assert test_2.required_fields == ["rec_name", "firstName"]
     assert test_2.components_logic == []
+    assert test_2.nested_datetime_fields == {'dataGrid': {'update_datetime': {'transform': {'type': 'datetime'}},
+                                                          'create_datetime': {'transform': {'type': 'datetime'}},
+                                                          'birthdateDg': {'ctype': 'datetime', 'disabled': False,
+                                                                          'readonly': False, 'hidden': False,
+                                                                          'required': False, 'unique': False,
+                                                                          'component': 'Component',
+                                                                          'calculateServer': '', 'action_type': False,
+                                                                          'no_clone': False,
+                                                                          'transform': {'type': 'date'},
+                                                                          'datetime': False, 'min': None, 'max': None,
+                                                                          'time': False, 'date': True},
+                                                          'appointmentDateTimeDg': {'ctype': 'datetime',
+                                                                                    'disabled': False,
+                                                                                    'readonly': False, 'hidden': False,
+                                                                                    'required': False, 'unique': False,
+                                                                                    'component': 'Component',
+                                                                                    'calculateServer': '',
+                                                                                    'action_type': False,
+                                                                                    'no_clone': False,
+                                                                                    'transform': {'type': 'datetime'},
+                                                                                    'datetime': True, 'min': None,
+                                                                                    'max': None, 'time': True,
+                                                                                    'date': True}},
+                                             'dataGrid2': {'update_datetime': {'transform': {'type': 'datetime'}},
+                                                           'create_datetime': {'transform': {'type': 'datetime'}},
+                                                           'birthdateDg': {'ctype': 'datetime', 'disabled': False,
+                                                                           'readonly': False, 'hidden': False,
+                                                                           'required': False, 'unique': False,
+                                                                           'component': 'Component',
+                                                                           'calculateServer': '', 'action_type': False,
+                                                                           'no_clone': False,
+                                                                           'transform': {'type': 'date'},
+                                                                           'datetime': False, 'min': None, 'max': None,
+                                                                           'time': False, 'date': True},
+                                                           'appointmentDateTimeDg': {'ctype': 'datetime',
+                                                                                     'disabled': False,
+                                                                                     'readonly': False, 'hidden': False,
+                                                                                     'required': False, 'unique': False,
+                                                                                     'component': 'Component',
+                                                                                     'calculateServer': '',
+                                                                                     'action_type': False,
+                                                                                     'no_clone': False,
+                                                                                     'transform': {'type': 'datetime'},
+                                                                                     'datetime': True, 'min': None,
+                                                                                     'max': None, 'time': True,
+                                                                                     'date': True}}}
+    assert test_2.nested_transform_data_value == {
+        'dataGrid': {'birthdateDg': {'type': 'date'}, 'appointmentDateTimeDg': {'type': 'datetime'}},
+        'dataGrid2': {'birthdateDg': {'type': 'date'}, 'appointmentDateTimeDg': {'type': 'datetime'}}}
+    assert test_2.select_fields == {
+        'favouriteSeason': {'multi': False, 'default': None, 'properties': {}, 'src': 'values', 'resource_id': ''},
+        'favouriteFood': {'multi': True, 'default': None, 'properties': {}, 'src': 'values', 'resource_id': ''},
+        'favouriteSeasonDg': {'multi': False, 'default': None, 'properties': {}, 'src': 'values', 'resource_id': ''}}
+    assert test_2.select_options == {
+        'favouriteSeason': [{'label': 'Spring', 'value': 'spring'}, {'label': 'Summer', 'value': 'summer'},
+                            {'label': 'Autumn', 'value': 'autumn'}, {'label': 'Winter', 'value': 'winter'}],
+        'favouriteFood': [{'label': 'Italian', 'value': 'italian'}, {'label': 'Mexican', 'value': 'mexican'},
+                          {'label': 'Chinese', 'value': 'chinese'}, {'label': 'Fastfood', 'value': 'fastfood'}],
+        'favouriteSeasonDg': [{'label': 'Spring', 'value': 'spring'}, {'label': 'Summer', 'value': 'summer'},
+                              {'label': 'Autumn', 'value': 'autumn'}, {'label': 'Winter', 'value': 'winter'}]}
     assert "rec_name" in test_2.no_clone_field_keys
     test_2.new({"rec_name": "test"})
     assert isinstance(test_2.instance, MainModel) is True
@@ -44,11 +104,11 @@ async def test_make_form_schema():
     assert test_2.instance.email == 'name@company.it'
     assert len(test_2.instance.dataGrid) == 2
     assert test_2.instance.dataGrid[0].textField == 'abc'
-    assert test_2.instance.dataGrid[0].birthdate == BasicModel.iso_to_utc("1987-12-17T00:00:00Z")
-    assert test_2.instance.dataGrid[0].appointmentDateTime == BasicModel.default_datetime()
+    assert test_2.instance.dataGrid[0].birthdateDg == BasicModel.iso_to_utc("1987-12-17T00:00:00Z")
+    assert test_2.instance.dataGrid[0].appointmentDateTimeDg == BasicModel.default_datetime()
     assert test_2.instance.dataGrid[1].textField == 'def'
-    assert test_2.instance.dataGrid[1].birthdate == BasicModel.iso_to_utc("1990-01-01T00:00:00Z")
-    assert test_2.instance.dataGrid[1].appointmentDateTime == BasicModel.default_datetime()
+    assert test_2.instance.dataGrid[1].birthdateDg == BasicModel.iso_to_utc("1990-01-01T00:00:00Z")
+    assert test_2.instance.dataGrid[1].appointmentDateTimeDg == BasicModel.default_datetime()
     assert test_2.instance.dataGrid2 == []
     assert test_2.instance.survey[
                'howWouldYouRateTheFormIoPlatform'] == 'excellent'

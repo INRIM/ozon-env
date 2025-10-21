@@ -1010,7 +1010,7 @@ class FormioModelMaker(BaseModelMaker):
         self.fields = {}
         self.component_props = {}
         self.select_fields = {}
-        self.select_optoins = {}
+        self.select_options = {}
         self.columns = {}
         self.conditional = {}
         self.logic = {}
@@ -1023,6 +1023,8 @@ class FormioModelMaker(BaseModelMaker):
         self.nested_conditional = {}
         self.nested_logic = {}
         self.nested_config_fields = {}
+        self.nested_datetime_fields = {}
+        self.nested_transform_data_value = {}
 
     def from_formio(
         self,
@@ -1056,6 +1058,10 @@ class FormioModelMaker(BaseModelMaker):
         field.childs = nested.model_form_fields
         self.model_form_fields[field.key] = field
         self.components[comp.get("key")] = (List[nested_model], [])
+        self.nested_datetime_fields[field.key] = nested.datetime_fields
+        self.nested_transform_data_value[field.key] = (
+            nested.tranform_data_value
+        )
         self.complete_component(field)
 
     def add_form(self, comp):
