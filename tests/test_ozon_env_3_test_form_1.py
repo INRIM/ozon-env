@@ -146,7 +146,7 @@ async def test_component_test_form_1_raw_update():
     await env.session_app()
     old_test_form_1_model = env.get('test_form_1')
     old_test_form_1 = await old_test_form_1_model.new()
-    assert len(old_test_form_1_model.form_fields) == 21
+    assert len(old_test_form_1_model.form_fields) == 22
     assert len(old_test_form_1_model.table_columns.keys()) == 7
     assert hasattr(old_test_form_1, "uploadBase64") is False
     assert hasattr(old_test_form_1, "content") is False
