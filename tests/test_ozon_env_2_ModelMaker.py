@@ -85,14 +85,19 @@ async def test_make_form_schema():
     assert test_2.select_fields == {
         'favouriteSeason': {'multi': False, 'default': None, 'properties': {}, 'src': 'values', 'resource_id': ''},
         'favouriteFood': {'multi': True, 'default': None, 'properties': {}, 'src': 'values', 'resource_id': ''},
-        'favouriteSeasonDg': {'multi': False, 'default': None, 'properties': {}, 'src': 'values', 'resource_id': ''}}
+        'favouriteSeasonDg': {'multi': False, 'default': None, 'properties': {}, 'src': 'values', 'resource_id': ''},
+        'post_id': {'default': '', 'header_key': '', 'header_value_key': '', 'multi': False,
+                    'properties': {'id': 'id', 'label': 'title'}, 'src': 'url',
+                    'url': 'https://jsonplaceholder.typicode.com/posts'}}
+
     assert test_2.select_options == {
         'favouriteSeason': [{'label': 'Spring', 'value': 'spring'}, {'label': 'Summer', 'value': 'summer'},
                             {'label': 'Autumn', 'value': 'autumn'}, {'label': 'Winter', 'value': 'winter'}],
         'favouriteFood': [{'label': 'Italian', 'value': 'italian'}, {'label': 'Mexican', 'value': 'mexican'},
                           {'label': 'Chinese', 'value': 'chinese'}, {'label': 'Fastfood', 'value': 'fastfood'}],
         'favouriteSeasonDg': [{'label': 'Spring', 'value': 'spring'}, {'label': 'Summer', 'value': 'summer'},
-                              {'label': 'Autumn', 'value': 'autumn'}, {'label': 'Winter', 'value': 'winter'}]}
+                              {'label': 'Autumn', 'value': 'autumn'}, {'label': 'Winter', 'value': 'winter'}],
+        'post_id': {}}
     assert "rec_name" in test_2.no_clone_field_keys
     test_2.new({"rec_name": "test"})
     assert isinstance(test_2.instance, MainModel) is True

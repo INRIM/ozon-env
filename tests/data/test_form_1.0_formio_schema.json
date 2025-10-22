@@ -1072,6 +1072,26 @@
           "idPath": "id",
           "uniqueOptions": false,
           "useExactSearch": false
+        },
+        {
+          "label": "Post",
+          "widget": "choicesjs",
+          "hidden": true,
+          "tableView": false,
+          "multiple": false,
+          "dataSrc": "url",
+          "data": {
+            "url": "https://jsonplaceholder.typicode.com/posts"
+          },
+          "clearOnHide": false,
+          "key": "post_id",
+          "properties": {
+            "label": "title",
+            "id": "id"
+          },
+          "type": "select",
+          "disableLimit": false,
+          "input": true
         }
       ],
       "placeholder": "",
