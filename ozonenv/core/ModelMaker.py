@@ -485,12 +485,10 @@ class selectComponent(Component):
         elif self.dataSrc == "url":
 
             self.url = self.raw.get("data").get("url")
-            self.header_key = (
-                self.raw.get("data", {}).get("headers", [])[0].get("key")
-            )
-            self.header_value_key = (
-                self.raw.get("data", {}).get("headers", [])[0].get("value")
-            )
+            headers = self.raw.get("data", {}).get("headers", [])
+            self.header_key = headers[0].get("key") if headers else ""
+            self.header_value_key = headers[0].get("value") if headers else ""
+
             if self.properties.get("model"):
                 self.builder.model_depends.append(self.properties.get("model"))
             self.field_cfg.update(
