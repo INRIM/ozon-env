@@ -4,6 +4,9 @@ on: [push, pull_request]
 
 jobs:
   ci:
+    permissions:
+      contents: read
+      pull-requests: write
     name: Test on Python ${{ matrix.python-version }} and ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
