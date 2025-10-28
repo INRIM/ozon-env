@@ -286,6 +286,9 @@ class OzonMBase:
         mm = False
         if not virtual and not as_virtual:
             data = model.normalize_datetime_fields(tz, data)
+            data = await self.make_data_value(
+                copy.deepcopy(data), pdata_value=data.get("data_value", {})
+            )
             modelr = model(**data)
         else:
             if data.get("id") is ObjectId:
