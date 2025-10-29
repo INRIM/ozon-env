@@ -15,7 +15,7 @@ from typing import Optional, get_origin, get_args
 from typing import TypeVar, Generic, List, Dict
 from zoneinfo import ZoneInfo
 
-from bson import Decimal128
+from bson import Decimal128, Int64
 from dateutil.parser import parse
 from pydantic import BaseModel, Field, field_serializer, AwareDatetime
 
@@ -443,6 +443,12 @@ class MainModel(BaseModel):
                             mdata[name] = float(str(raw_value))
                         except ValueError:
                             mdata[name] = 0.0
+                elif field.annotation in [int, Optional[int]]:
+                    if type(raw_value) in [Int64, str]:
+                        try:
+                            mdata[name] = int(str(raw_value))
+                        except ValueError:
+                            mdata[name] = 0
             return mdata
 
         return _normalize_model_fields(cls, dati)
