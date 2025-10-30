@@ -242,10 +242,6 @@ class ModelService:
                     local_data_value = self.check_update_data_value(
                         name, local_data_value, res
                     )
-                elif field.annotation in (str, Optional[str]):
-                    local_data_value = self.check_update_data_value(
-                        name, local_data_value, input_data[name]
-                    )
 
             return local_data_value
 
