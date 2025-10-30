@@ -234,14 +234,6 @@ class ModelService:
                     local_data_value = self.check_update_data_value(
                         name, local_data_value, res
                     )
-                elif field.annotation in (int, Optional[int]):
-                    try:
-                        res = int(str(input_data[name]))
-                    except ValueError:
-                        res = 0
-                    local_data_value = self.check_update_data_value(
-                        name, local_data_value, res
-                    )
                 elif (
                     hasattr(self.model, "select_fields")
                     and name in self.model.select_fields()
@@ -249,6 +241,10 @@ class ModelService:
                     res = await self.eval_select(name, input_data[name])
                     local_data_value = self.check_update_data_value(
                         name, local_data_value, res
+                    )
+                elif field.annotation in (str, Optional[str]):
+                    local_data_value = self.check_update_data_value(
+                        name, local_data_value, input_data[name]
                     )
 
             return local_data_value
