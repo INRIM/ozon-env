@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import time as time_
+from curses.ascii import isalpha
 from os.path import dirname, exists
 
 import aiofiles
@@ -555,8 +556,9 @@ class OzonOrm:
 
         def camel(snake_str):
             parts = snake_str.split("_")
-            return parts[0].lower() + "".join(
-                word.title() for word in parts[1:]
+            return parts[0].title() + "".join(
+                word.title() if word[0].isalpha() else word
+                for word in parts[1:]
             )
 
         def _getattribute(obj, name):
