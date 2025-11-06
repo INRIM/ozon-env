@@ -552,9 +552,12 @@ class OzonOrm:
         return res
 
     async def import_module_model(self, model_name):
+
         def camel(snake_str):
-            names = snake_str.split("_")
-            return "".join([*map(str.title, names)])
+            parts = snake_str.split("_")
+            return parts[0].lower() + "".join(
+                word.title() for word in parts[1:]
+            )
 
         def _getattribute(obj, name):
             for subpath in name.split("."):
