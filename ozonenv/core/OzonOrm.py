@@ -554,11 +554,16 @@ class OzonOrm:
 
     async def import_module_model(self, model_name):
 
+        def smart_title(s):
+            # Se il primo carattere è alfabetico, lo metto maiuscolo
+            if s and s[0].isalpha():
+                return s[0].upper() + s[1:]
+            return s
+
         def camel(snake_str):
             parts = snake_str.split("_")
-            return parts[0].title() + "".join(
-                word.title() if word[0].isalpha() else word
-                for word in parts[1:]
+            return "".join(
+                smart_title(word) for word in parts
             )
 
         def _getattribute(obj, name):
