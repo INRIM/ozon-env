@@ -562,9 +562,7 @@ class OzonOrm:
 
         def camel(snake_str):
             parts = snake_str.split("_")
-            return "".join(
-                smart_title(word) for word in parts
-            )
+            return "".join(smart_title(word) for word in parts)
 
         def _getattribute(obj, name):
             for subpath in name.split("."):
