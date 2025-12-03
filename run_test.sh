@@ -9,6 +9,6 @@ poetry run black ozonenv/**/*.py
 pip install --upgrade -e .
 echo "run test"
 rm -rf tests/models
-poetry run pytest --cov --cov-report=html -vv -x -s
+time poetry run pytest --cov --cov-report=html -vv -x -s
 docker compose down
 echo "make project: Done."
