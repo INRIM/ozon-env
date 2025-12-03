@@ -453,6 +453,10 @@ class MainModel(BaseModel):
 
         return _normalize_model_fields(cls, dati)
 
+    @classmethod
+    def tranform_data_value(cls):
+        return {}
+
     model_config = {
         "populate_by_name": True,
         "arbitrary_types_allowed": True,
@@ -597,10 +601,6 @@ class CoreModel(MainModel):
 
     @classmethod
     def json_schema(cls) -> dict[str, Any]:
-        return {}
-
-    @classmethod
-    def tranform_data_value(cls):
         return {}
 
     @classmethod

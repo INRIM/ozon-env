@@ -60,14 +60,14 @@ async def test_env_data_file_virtual_model():
     assert doc_not_saved is None
     assert (
         virtual_doc_model.message
-        == "Non è consetito salvare un oggetto virtuale"
+        == "Impostare un data model per un model virtuale per operare sul db"
     )
 
     doc_not_saved = await virtual_doc_model.update(doc)
     assert doc_not_saved is None
     assert (
         virtual_doc_model.message
-        == "Non e' consentito aggiornare un oggetto virtuale"
+        == "Impostare un data model per un model virtuale per operare sul db"
     )
 
     await env.close_db()
