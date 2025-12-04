@@ -297,7 +297,7 @@ async def test_test_form_1_insert_ko():
     test_form_1 = await test_form_1_model.new(data=data)
     test_form_1_new = await test_form_1_model.insert(test_form_1)
     assert test_form_1_new is None
-    assert test_form_1_model.message == "Errore Duplicato rec_name: first_form"
+    assert test_form_1_model.message == 'Errore Duplicato rec_name: first_form'
 
     await env.set_lang("en")
     test_form_en = await test_form_1_model.insert(test_form_1)

@@ -9,7 +9,12 @@ from typing import Any, Union, List, Dict
 
 from bson import ObjectId, Decimal128
 from pydantic._internal._model_construction import ModelMetaclass
-from pymongo.errors import DuplicateKeyError
+from pymongo import ReturnDocument
+from pymongo.errors import (
+    DuplicateKeyError,
+    ConnectionFailure,
+    WriteConcernError,
+)
 
 from ozonenv.core.BaseModels import (
     Component,
@@ -99,6 +104,8 @@ class OzonMBase:
         self.modelr: CoreModel = None
         self.mm: ModelMaker = None
         self.service: ModelService = None
+        self.def_recompute_dv = True
+        self.def_recompute_dt = True
 
     def init_schema_properties(self):
         """Popola gli attributi della classe in base alle proprietà definite nello schema."""
@@ -283,6 +290,8 @@ class OzonMBase:
         tz: Any,
         virtual_fields_parser: dict,
         as_virtual: bool = False,
+        recompute_dv=True,
+        recompute_dt=True,
     ) -> tuple[CoreModel, ModelMaker]:
 
         mm = None
@@ -291,10 +300,12 @@ class OzonMBase:
         if not virtual and not as_virtual:
             # Modello Statico/Reale: Rimuovi la chiamata a normalize_datetime_fields se CoreModel
             # lo fa già all'istanziazione, altrimenti CoreModel deve avere questo metodo.
-            data = model.normalize_datetime_fields(tz, data)
-            data = await self.make_data_value(
-                data, pdata_value=data.get("data_value", {})
-            )
+            if recompute_dt:
+                data = model.normalize_datetime_fields(tz, data)
+            if recompute_dv:
+                data = await self.make_data_value(
+                    data, pdata_value=data.get("data_value", {})
+                )
             modelr = model(**data)
         else:
             # Modello Virtuale
@@ -314,7 +325,13 @@ class OzonMBase:
 
         return modelr, mm
 
-    async def load_data(self, data: dict, as_virtual: bool = False):
+    async def load_data(
+        self,
+        data: dict,
+        as_virtual: bool = False,
+        recompute_dv=True,
+        recompute_dt=True,
+    ):
         """Carica i dati in un'istanza del modello (self.modelr)."""
         if self.transform_config:
             self.tranform_data_value = self.transform_config
@@ -328,6 +345,8 @@ class OzonMBase:
             self.tz,
             self.virtual_fields_parser,
             as_virtual=as_virtual,
+            recompute_dv=recompute_dv,
+            recompute_dt=recompute_dt,
         )
 
 
@@ -488,7 +507,12 @@ class OzonModelBase(OzonMBase):
         domain = domain or self.default_domain
         return await self.count_by_filter(domain)
 
-    async def by_name(self, name: str) -> Union[None, CoreModel]:
+    async def by_name(
+        self,
+        name: str,
+        recompute_dv=True,
+        recompute_dt=True,
+    ) -> Union[None, CoreModel]:
         return await self.load({'rec_name': name})
 
     async def new(
@@ -590,7 +614,11 @@ class OzonModelBase(OzonMBase):
             return await self.insert(self.modelr)
 
     async def insert(
-        self, record: CoreModel, is_many: bool = False
+        self,
+        record: CoreModel,
+        is_many: bool = False,
+        recompute_dv=True,
+        recompute_dt=True,
     ) -> Union[None, CoreModel]:
 
         if not await self._pre_execute_check(
@@ -619,10 +647,12 @@ class OzonModelBase(OzonMBase):
 
             # 2. Preparazione per il Salvataggio
             if not self.virtual:
-                data = record.normalize_datetime_fields(self.tz, data)
-                to_save = await self.make_data_value(
-                    data, pdata_value=data.get("data_value", {})
-                )
+                if recompute_dt:
+                    data = record.normalize_datetime_fields(self.tz, data)
+                if recompute_dv:
+                    to_save = await self.make_data_value(
+                        data, pdata_value=data.get("data_value", {})
+                    )
             else:
                 to_save = self._make_from_dict(
                     data, data_value=data.get("data_value", {})
@@ -632,11 +662,22 @@ class OzonModelBase(OzonMBase):
                 to_save['_id'] = ObjectId(to_save['id'])
 
             # 3. Salvataggio e Caricamento
-            result_save = await coll.insert_one(to_save)
+            query_for_insertion = {"_id": to_save['_id']}
+            result_save = await coll.find_one_and_replace(
+                query_for_insertion,  # Query fittizia: non troverà nulla
+                to_save,  # Il documento da inserire
+                # Opzioni cruciali:
+                upsert=True,
+                return_document=ReturnDocument.AFTER,  # Restituisce il documento *dopo* l'inserimento
+            )
+            # result_save = await coll.insert_one(to_save)
             if result_save:
-                return await self.load(
-                    {"rec_name": to_save['rec_name']}, in_execution=True
-                )
+                result_save.pop("_id", None)
+                if isinstance(result_save.get("id"), ObjectId):
+                    result_save["id"] = str(result_save["id"])
+                await self.load_data(result_save)
+                # print(self.modelr)
+                return self.modelr
 
             self.error_status(
                 _("Error save  %s ") % str(to_save['rec_name']), to_save
@@ -644,7 +685,7 @@ class OzonModelBase(OzonMBase):
             return None
 
         except DuplicateKeyError as e:
-            logger.error(f" Duplicate {e.details['errmsg']}")
+            logger.error(f"Duplicate {e.details['errmsg']}")
             field = e.details["keyValue"]
             key = list(field.keys())[0]
             val = field[key]
@@ -653,15 +694,39 @@ class OzonModelBase(OzonMBase):
                 record.get_dict_copy(),
             )
             return None
+        except ConnectionFailure as e:
+            # Errore di Connessione: Il driver non è riuscito a connettersi a MongoDB
+            # (es. server down o problemi di rete).
+            msg = _(f"Error connecting to MongoDB: % {e.details['errmsg']}")
+            logger.error(msg)
+            self.error_status(
+                msg,
+                record.get_dict_copy(),
+            )
+            return None
+        except WriteConcernError as e:
+            # Errore di Write Concern: Problemi legati alla garanzia di scrittura
+            # (es. non abbastanza nodi del replica set hanno confermato la scrittura).
+            msg = _(f"Error Write Concern: {e.details['errmsg']}")
+            logger.error(msg)
+            self.error_status(
+                msg,
+                record.get_dict_copy(),
+            )
+            return None
         except Exception as e:
-            logger.error(f" Error during insert: {e}")
+            logger.error(f" Error during insert: {e}", exc_info=True)
             self.error_status(
                 _("Operation Error %s ") % str(e), record.get_dict_copy()
             )
             return None
 
     async def _insert(
-        self, record: CoreModel, count: int
+        self,
+        record: CoreModel,
+        count: int,
+        recompute_dv=True,
+        recompute_dt=True,
     ) -> Union[None, CoreModel]:
         record.list_order = count
         return await self.insert(record, is_many=True)
@@ -731,7 +796,9 @@ class OzonModelBase(OzonMBase):
         self,
         record: CoreModel,
         remove_mata: bool = True,
-        force_update_whole_record: bool = False,
+        force_update_whole_record: bool = True,
+        recompute_dv=True,
+        recompute_dt=True,
     ) -> Union[None, CoreModel]:
 
         if not await self._pre_execute_check(
@@ -741,7 +808,11 @@ class OzonModelBase(OzonMBase):
 
         try:
             coll = self.db.engine.get_collection(self.data_model)
-            original = await self.load(record.rec_name_domain())
+            original = await self.load(
+                record.rec_name_domain(),
+                recompute_dt=recompute_dt,
+                recompute_dv=recompute_dv,
+            )
 
             if not original:
                 self.error_status(
@@ -754,8 +825,9 @@ class OzonModelBase(OzonMBase):
                 data = record.get_dict()
                 data["update_uid"] = self.orm.user_session.get("user.uid")
                 data["update_datetime"] = record.utc_now()
+                if recompute_dt:
+                    data = self.model.normalize_datetime_fields(self.tz, data)
 
-                data = self.model.normalize_datetime_fields(self.tz, data)
                 _save = await self.make_data_value(
                     data, pdata_value=data.get("data_value", {})
                 )
@@ -775,14 +847,38 @@ class OzonModelBase(OzonMBase):
             if not to_set:
                 return record
 
-            to_set.pop("rec_name", None)
+            domain = record.rec_name_domain()
+
+            # *******************************************************************
+            # CRUCIALE per EVITARE l'errore "ImmutableField" durante l'aggiornamento:
+            # Rimuovi l'ID dal payload che andrà in $set / replacement!
+            # *******************************************************************
+            # del to_set['_id']
+            # to_set.pop("rec_name", None)
             to_set.pop("_id", None)
 
             # 2. Update nel DB
-            await coll.update_one(record.rec_name_domain(), {"$set": to_set})
-
+            # await coll.update_one(record.rec_name_domain(), {"$set": to_set})
+            result_doc = await coll.find_one_and_replace(
+                domain,
+                to_set,
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+            # print(result_doc)
             # 3. Ritorna il record aggiornato
-            return await self.load(record.rec_name_domain(), in_execution=True)
+            # return await self.load(
+            #     record.rec_name_domain(),
+            #     in_execution=True,
+            #     recompute_dt=False,
+            #     recompute_dv=True,
+            # )
+            result_doc.pop("_id", None)
+            if isinstance(result_doc.get("id"), ObjectId):
+                result_doc["id"] = str(result_doc["id"])
+            await self.load_data(result_doc)
+            # print(self.modelr)
+            return self.modelr
 
         except DuplicateKeyError as e:
             logger.error(f" Duplicate {e.details['errmsg']}")
@@ -795,7 +891,7 @@ class OzonModelBase(OzonMBase):
             )
             return None
         except Exception as e:
-            logger.error(f" Operation Error: {e}")
+            logger.error(f" Operation Error: {e}", exc_info=True)
             self.error_status(
                 _("Operation Error %s ") % str(e), record.get_dict_copy()
             )
@@ -804,7 +900,7 @@ class OzonModelBase(OzonMBase):
     async def update_many(
         self,
         records: List[CoreModel],
-        force_update_whole_record: bool = False,
+        force_update_whole_record: bool = True,
         resp_type: str = "model",
     ) -> Union[List[Union[None, CoreModel]], str, List[dict]]:
 
@@ -845,13 +941,19 @@ class OzonModelBase(OzonMBase):
         return result.deleted_count
 
     async def load(
-        self, domain: dict, in_execution: bool = False
+        self,
+        domain: dict,
+        in_execution: bool = False,
+        recompute_dv=True,
+        recompute_dt=True,
     ) -> Union[None, CoreModel]:
         data = await self.load_raw(domain)
         if self.status.fail or not data:
             return None
 
-        await self.load_data(data)
+        await self.load_data(
+            data, recompute_dv=recompute_dv, recompute_dt=recompute_dt
+        )
         return self.modelr
 
     async def load_raw(self, domain: dict) -> Union[None, dict]:
@@ -872,12 +974,16 @@ class OzonModelBase(OzonMBase):
 
         return data
 
-    async def process_all(self, datas: list) -> List[Any]:
+    async def process_all(
+        self, datas: list, recompute_dv=True, recompute_dt=True
+    ) -> List[Any]:
         """Converte i dati raw (da DB) in istanze di modello in parallelo."""
         if not datas:
             return []
 
-        async def process_one(rec_data):
+        async def process_one(
+            rec_data, precompute_dv=True, precompute_dt=True
+        ):
             rec_data.pop("_id", None)
             if isinstance(rec_data.get("id"), ObjectId):
                 rec_data["id"] = str(rec_data["id"])
@@ -890,10 +996,19 @@ class OzonModelBase(OzonMBase):
                 self.session_model,
                 self.tz,
                 self.virtual_fields_parser,
+                recompute_dv=precompute_dv,
+                recompute_dt=precompute_dt,
             )
             return modelr
 
-        return await asyncio.gather(*(process_one(d) for d in datas))
+        return await asyncio.gather(
+            *(
+                process_one(
+                    d, precompute_dv=recompute_dv, precompute_dt=recompute_dt
+                )
+                for d in datas
+            )
+        )
 
     async def find(
         self,
@@ -903,7 +1018,9 @@ class OzonModelBase(OzonMBase):
         skip: int = 0,
         pipeline_items: list = None,
         resp_type: str = "model",
-    ) -> List[Any]:
+        recompute_dv=False,
+        recompute_dt=False,
+    ) -> Union[List[Any], str]:
 
         datas = await self.find_raw(
             domain,
@@ -916,7 +1033,9 @@ class OzonModelBase(OzonMBase):
 
         results = []
         if not self.virtual:
-            results = await self.process_all(datas)
+            results = await self.process_all(
+                datas, recompute_dv=recompute_dv, recompute_dt=recompute_dt
+            )
         else:
             for rec in datas:
                 await self.load_data(rec)
@@ -1003,6 +1122,8 @@ class OzonModelBase(OzonMBase):
         skip: int = 0,
         as_virtual: bool = True,
         resp_type: str = "model",
+        recompute_dv=False,
+        recompute_dt=False,
     ) -> List[Any]:
 
         datas = await self.aggregate_raw(
@@ -1011,7 +1132,9 @@ class OzonModelBase(OzonMBase):
         results = []
 
         if not self.virtual and not as_virtual:
-            results = await self.process_all(datas)
+            results = await self.process_all(
+                datas, recompute_dv=recompute_dv, recompute_dt=recompute_dt
+            )
         else:
             for rec in datas:
                 await self.load_data(rec, as_virtual=as_virtual)
@@ -1042,6 +1165,8 @@ class OzonModelBase(OzonMBase):
         limit: int = 0,
         skip: int = 0,
         raw_result: bool = False,
+        recompute_dv=False,
+        recompute_dt=False,
     ) -> List[Any]:
         if not await self._pre_execute_check(query):
             return []
@@ -1095,7 +1220,12 @@ class OzonModelBase(OzonMBase):
             )
         else:
             return await self.aggregate(
-                pipeline, sort=sort, limit=limit, skip=skip
+                pipeline,
+                sort=sort,
+                limit=limit,
+                skip=skip,
+                recompute_dv=recompute_dv,
+                recompute_dt=recompute_dt,
             )
 
     async def set_to_delete(self, record: CoreModel) -> Union[None, CoreModel]:
