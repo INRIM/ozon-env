@@ -33,6 +33,29 @@ async def test_make_form_schema():
     assert test_2.unique_fields == ["rec_name", "firstName"]
     assert test_2.required_fields == ["rec_name", "firstName"]
     assert test_2.components_logic == []
+    assert test_2.datetime_fields == {'update_datetime': {'transform': {'type': 'datetime'}},
+                                      'create_datetime': {'transform': {'type': 'datetime'}},
+                                      'birthdate': {'ctype': 'datetime', 'disabled': False, 'readonly': False,
+                                                    'hidden': False, 'required': False, 'unique': False,
+                                                    'component': 'Component', 'calculateServer': '',
+                                                    'action_type': False, 'no_clone': False,
+                                                    'transform': {'type': 'date'}, 'datetime': False, 'min': None,
+                                                    'max': None, 'time': False, 'date': True},
+                                      'appointmentDateTime': {'ctype': 'datetime', 'disabled': False, 'readonly': False,
+                                                              'hidden': False, 'required': False, 'unique': False,
+                                                              'component': 'Component', 'calculateServer': '',
+                                                              'action_type': False, 'no_clone': False,
+                                                              'transform': {'type': 'datetime'}, 'datetime': True,
+                                                              'min': None, 'max': None, 'time': True, 'date': True},
+                                      'appointmentDateTime1': {'ctype': 'datetime', 'disabled': False,
+                                                               'readonly': False, 'hidden': False, 'required': False,
+                                                               'unique': False, 'component': 'Component',
+                                                               'calculateServer': '', 'action_type': False,
+                                                               'no_clone': False, 'transform': {'type': 'datetime'},
+                                                               'datetime': True, 'min': None, 'max': None, 'time': True,
+                                                               'date': True}}
+    assert test_2.tranform_data_value == {'birthdate': {'type': 'date'}, 'appointmentDateTime': {'type': 'datetime'},
+                                          'appointmentDateTime1': {'type': 'datetime'}}
     assert test_2.nested_datetime_fields == {'dataGrid': {'update_datetime': {'transform': {'type': 'datetime'}},
                                                           'create_datetime': {'transform': {'type': 'datetime'}},
                                                           'birthdateDg': {'ctype': 'datetime', 'disabled': False,

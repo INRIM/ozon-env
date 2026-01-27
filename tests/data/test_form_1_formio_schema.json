@@ -449,8 +449,6 @@
               "format": "yyyy-MM-dd hh:mm a",
               "useLocaleSettings": false,
               "allowInput": true,
-              "enableDate": true,
-              "enableTime": true,
               "defaultDate": "",
               "displayInTimezone": "viewer",
               "timezone": "",

@@ -264,8 +264,28 @@ class Component:
         self.cfg["max"] = False
         if self.raw.get("type") == "datetime":
             enableDateInCfg = "enableDate" in self.raw
-            self.cfg["time"] = self.raw.get("enableTime", False)
-            self.cfg["date"] = self.raw.get("enableDate", False)
+            if "enableTime" in self.raw:
+                enableTime = self.raw.get("enableTime")
+            elif "enableTime" in self.raw["widget"]:
+                enableTime = self.raw["widget"].get("enableTime")
+            else:
+                # ATTENTION: If the prop `enableTime` is not present in either root or widget prop,
+                #            then FormIO treats it as enableTime -> False
+                enableTime = False
+
+            if "enableDate" in self.raw:
+                enableDate = self.raw.get("enableDate")
+            elif "enableDate" in self.raw["widget"]:
+                enableDate = self.raw["widget"].get("enableDate")
+            else:
+                # ATTENTION: in case the `enableDate` prop is not present
+                #            neither in the root of the cmp nor in the widget prop,
+                #            FormIO treats it as enableDate -> True
+                enableDate = True
+
+            self.cfg["time"] = enableTime
+            self.cfg["date"] = enableDate
+
             # when formio js make json for a bug not store enableDate in config
             # is datime field have not time and date activated
             # set date as visible by default
