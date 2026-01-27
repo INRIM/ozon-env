@@ -10,7 +10,6 @@ from ozonenv.core.BaseModels import CoreModel, defaultdt, MainModel
 from ozonenv.core.DateEngine import DateEngine
 from ozonenv.core.utils import unwrap_optional
 
-
 # from ozonenv.core.OzonOrm import OzonOrm
 
 

@@ -75,6 +75,7 @@ class OzonWorkerEnv(OzonEnv):
             "next_page": redirect_url
         }
 
+
         return cls.success_response(msg=msg, data={
             topic: result
         })
