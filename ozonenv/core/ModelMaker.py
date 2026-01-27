@@ -264,8 +264,8 @@ class Component:
         self.cfg["max"] = False
         if self.raw.get("type") == "datetime":
             enableDateInCfg = "enableDate" in self.raw
-            self.cfg["time"] = self.raw.get("enableTime", False)
-            self.cfg["date"] = self.raw.get("enableDate", False)
+            self.cfg["time"] = self.raw.get("enableTime", True)
+            self.cfg["date"] = self.raw.get("enableDate", True)
             # when formio js make json for a bug not store enableDate in config
             # is datime field have not time and date activated
             # set date as visible by default
