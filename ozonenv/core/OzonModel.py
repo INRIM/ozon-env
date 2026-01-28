@@ -105,6 +105,7 @@ class OzonMBase:
         self.depends = []
         self.it_depends = []
         self.service: ModelService
+        self._transaction = False
 
     def init_schema_properties(self):
         if self.schema.get("properties", {}):

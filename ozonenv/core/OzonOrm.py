@@ -6,8 +6,10 @@ import logging
 import os
 import sys
 import time as time_
-from curses.ascii import isalpha
+from contextvars import ContextVar
 from os.path import dirname, exists
+from pathlib import Path
+from typing import Union
 
 import aiofiles
 from aiopath import AsyncPath
@@ -38,7 +40,6 @@ from ozonenv.core.db.mongodb_utils import (
 from ozonenv.core.exceptions import SessionException
 from ozonenv.core.i18n import _
 from ozonenv.core.i18n import update_translation
-from pathlib import Path
 
 logger = logging.getLogger(__file__)
 
@@ -92,6 +93,55 @@ class OzonEnvBase:
         self.app_code = self.config_system.get("app_code")
         self.cls_model = cls_model
         self.default_tz = (os.getenv("TZ", "Europe/Rome"),)
+        self._local_transaction_var = ContextVar(
+            f"undo_{id(self)}", default=None
+        )
+
+    def local_transaction_start(self):
+        if not self._local_transaction_var.get():
+            self._local_transaction_var.set({'trlocal': {}})
+        for name, model in self.models.items():
+            model._transaction = True
+
+    def get_local_transaction(self):
+        return self._local_transaction_var.get()
+
+    def local_transaction_add(self, model, action, rec_name, data):
+        undo = self._local_transaction_var.get()
+        if undo is None:
+            undo = {}
+        trl = undo['trlocal']
+        if model not in trl:
+            trl[model] = []
+        snap = {"type": action, "data": data, "rec_name": rec_name}
+        trl[model].append(snap)
+        undo.update(trl)
+        self._local_transaction_var.set(undo)
+
+    def local_transaction_end(self):
+        self._local_transaction_var.set(None)
+        for name, model in self.models.items():
+            model._transaction = False
+
+    async def local_transaction_rollback(self):
+        undo = self._local_transaction_var.get()
+        if not undo:
+            return
+        trl = undo['trlocal']
+        for model, snaps in trl.items():
+            coll = self.db.engine.get_collection(model)
+            for snap in reversed(snaps):
+                if snap["type"] == "insert":
+                    await coll.delete_one({"rec_name": snap["rec_name"]})
+                elif snap["type"] == "update":
+                    await coll.replace_one(
+                        {"rec_name": snap["rec_name"]}, snap['data']
+                    )
+                elif snap["type"] == "delete":
+                    await coll.insert_one(snap['data'])
+            # ozn_model = self.models.get(model)
+
+        self.local_transaction_end()
 
     def build_full_graph(self, name, visited=None):
         """
@@ -855,3 +905,45 @@ class OzonModel(OzonModelBase):
     def chk_write_permission(self) -> bool:
         res = super().chk_write_permission()
         return res
+
+    async def update(
+        self,
+        record: CoreModel,
+        remove_mata=True,
+        force_update_whole_record=False,
+    ) -> Union[None, CoreModel]:
+        self.init_status()
+        if not self.chk_write_permission():
+            msg = _("Session is Readonly")
+            self.error_status(msg, data=record.get_dict_json())
+            return None
+        if self._transaction:
+            original = await self.load_raw(record.rec_name_domain())
+            self.env.local_transaction_add(
+                self.data_model, "update", record.rec_name, original
+            )
+        return await super().update(
+            record, remove_mata, force_update_whole_record
+        )
+
+    async def insert(
+        self, record: CoreModel, is_many=False
+    ) -> Union[None, CoreModel]:
+        rec = await super().insert(record, is_many=is_many)
+        if rec and self._transaction:
+            self.env.local_transaction_add(
+                self.data_model, "insert", rec.rec_name, {}
+            )
+        return rec
+
+    async def remove(self, record: CoreModel) -> bool:
+        self.init_status()
+        if not self.chk_write_permission():
+            msg = _("Session is Readonly")
+            self.error_status(msg, data=record.get_dict_json())
+            return False
+        if self._transaction:
+            self.env.local_transaction_add(
+                self.data_model, "delete", record.rec_name, record.get_dict()
+            )
+        return await super().remove(record)
