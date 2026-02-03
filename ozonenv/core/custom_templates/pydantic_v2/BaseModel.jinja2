@@ -1,10 +1,3 @@
-{% if base_class != "BaseModel" and "," not in base_class and not fields and not config -%}
-{# if this is just going to be `class Foo(Bar): pass`, then might as well just make Foo
-an alias for Bar: every pydantic model class consumes considerable memory. #}
-{{ class_name }} = {{ base_class }}
-
-{% else -%}
-
 {% for decorator in decorators -%}
 {{ decorator }}
 {% endfor -%}
@@ -16,10 +9,10 @@ class {{ class_name }}({{ base_class }}):{% if comment is defined %}  # {{ comme
 {% endif %}
 {%- if description %}
     """
-    {{ description | indent(4) }}
+    {{ description | escape_docstring | indent(4) }}
     """
 {%- endif %}
-{%- if not fields and not description %}
+{%- if not fields and not description and not config and not class_body_lines %}
     pass
 {%- endif %}
 {%- if config %}
@@ -27,7 +20,10 @@ class {{ class_name }}({{ base_class }}):{% if comment is defined %}  # {{ comme
 {% include 'ConfigDict.jinja2' %}
 {%- endfilter %}
 {%- endif %}
-{%- for field in fields -%}
+{%- for line in class_body_lines %}
+    {{ line }}
+{%- endfor %}
+{%- for field in fields %}
     {%- if not field.annotated and field.field %}
     {{ field.name }}: {{ field.type_hint }} = {{ field.field }}
     {%- else %}
@@ -36,18 +32,41 @@ class {{ class_name }}({{ base_class }}):{% if comment is defined %}  # {{ comme
     {%- else %}
     {{ field.name }}: {{ field.type_hint }}
     {%- endif %}
-    {%- if not (field.required or (field.represented_default == 'None' and field.strip_default_none)) or field.data_type.is_optional
+    {%- if not field.has_default_factory_in_field and not field.required and (field.represented_default != 'None' or not field.strip_default_none or field.data_type.is_optional)
             %} = {{ field.represented_default }}
     {%- endif -%}
     {%- endif %}
     {%- if field.docstring %}
     """
-    {{ field.docstring | indent(4) }}
+    {{ field.docstring | escape_docstring | indent(4) }}
     """
+{%- if field.use_inline_field_description and not loop.last %}
+
+{% endif %}
+    {%- elif field.inline_field_docstring %}
+    {{ field.inline_field_docstring }}
+{%- if not loop.last %}
+
+{% endif %}
     {%- endif %}
 {%- for method in methods -%}
     {{ method }}
 {%- endfor -%}
 {%- endfor -%}
+{%- if prepared_validators %}
+{% for v in prepared_validators %}
 
+    @field_validator({{ v.fields_str }}, {{ v.mode_str }})
+    @classmethod
+{%- if v.mode == 'wrap' %}
+    def {{ v.method_name }}(cls, v: Any, handler: ValidatorFunctionWrapHandler, info: ValidationInfo) -> Any:
+        return {{ v.function_name }}(v, handler, info)
+{%- elif v.mode == 'plain' %}
+    def {{ v.method_name }}(cls, v: Any) -> Any:
+        return {{ v.function_name }}(v)
+{%- else %}
+    def {{ v.method_name }}(cls, v: Any, info: ValidationInfo) -> Any:
+        return {{ v.function_name }}(v, info)
+{%- endif %}
+{%- endfor %}
 {%- endif %}

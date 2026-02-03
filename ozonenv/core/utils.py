@@ -1,6 +1,7 @@
 import base64
 import tempfile
 import re
+from types import UnionType
 from typing import get_origin, Union, get_args
 
 import aiofiles
@@ -106,7 +107,7 @@ def traverse_and_convertd_datetime(obj):
 def unwrap_optional(annotation):
     """Return the actual type inside Optional / Union[..., None]"""
     origin = get_origin(annotation)
-    if origin is Union:
+    if origin in (Union, UnionType):
         args = [a for a in get_args(annotation) if a is not type(None)]
         if args:
             return args[0]

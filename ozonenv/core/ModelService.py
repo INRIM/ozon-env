@@ -200,11 +200,7 @@ class ModelService:
                         continue
 
                 # --- EXISTING LOGIC for primitive fields ---
-                if field.annotation in (
-                    datetime,
-                    AwareDatetime,
-                    Optional[AwareDatetime],
-                ):
+                if actual_type in (datetime, AwareDatetime):
                     nested_trnsfm_dv = (
                         self.model.nested_transform_data_value().get(
                             nested_field, {}
@@ -219,7 +215,7 @@ class ModelService:
                         name, local_data_value, res
                     )
 
-                elif field.annotation in (float, Optional[float]):
+                elif actual_type is float:
                     nested_trnsfm_dv = (
                         self.model.nested_transform_data_value().get(
                             nested_field, {}
