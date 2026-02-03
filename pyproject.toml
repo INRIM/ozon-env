@@ -9,9 +9,6 @@ license = "MIT"
 packages = [
     { include = "ozonenv" }
 ]
-include = [
-    "ozonenv/core/custom_templates/**/*"
-]
 exclude = ["tests/*"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -45,13 +42,9 @@ Babel = ">=2.10.3"
 anyio = ">=0.20"
 starlette = ">=0.39.2"
 redis = ">=4.2.0rc1"
-datamodel-code-generator = "==0.45.0"
+datamodel-code-generator = "==0.53.0"
 pendulum = ">=3.0.0"
 iso8601 = "*"
-
-
-[tool.poetry.extras]
-json_logic = ["json_logic_qubit"]
 
 
 [tool.poetry.dev-dependencies]

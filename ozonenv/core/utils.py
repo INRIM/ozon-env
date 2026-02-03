@@ -1,6 +1,7 @@
 import base64
 import tempfile
 import re
+from types import UnionType
 from typing import get_origin, Union, get_args
 
 import aiofiles
@@ -106,8 +107,20 @@ def traverse_and_convertd_datetime(obj):
 def unwrap_optional(annotation):
     """Return the actual type inside Optional / Union[..., None]"""
     origin = get_origin(annotation)
-    if origin is Union:
+    if origin in (Union, UnionType):
         args = [a for a in get_args(annotation) if a is not type(None)]
         if args:
             return args[0]
     return annotation
+
+
+def smart_title(s):
+    # Se il primo carattere è alfabetico, lo metto maiuscolo
+    if s and s[0].isalpha():
+        return s[0].upper() + s[1:]
+    return s
+
+
+def model_camel(snake_str):
+    parts = snake_str.split("_")
+    return "".join(smart_title(word) for word in parts)

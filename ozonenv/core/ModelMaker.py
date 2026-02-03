@@ -1034,6 +1034,7 @@ class FormioModelMaker(BaseModelMaker):
         self.logic = {}
         self.model_depends = []
         self.config_fields = {}
+        self.nested_models = []
         self.nested_fields = {}
         self.nested_component_props = {}
         self.nested_select_fields = {}
@@ -1080,6 +1081,7 @@ class FormioModelMaker(BaseModelMaker):
         self.nested_transform_data_value[field.key] = (
             nested.tranform_data_value
         )
+        self.nested_models.append(nested)
         self.complete_component(field)
 
     def add_form(self, comp):

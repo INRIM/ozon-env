@@ -377,11 +377,9 @@ class MainModel(BaseModel):
                                 mdata[name][idx] = el_data
                         continue
 
-                if field.annotation in (
-                    datetime,
-                    AwareDatetime,
-                    Optional[AwareDatetime],
-                ):
+                if actual_type in (datetime, AwareDatetime):
+                    if name in ["birthdateDg", "appointmentDateTimeDg"]:
+                        print(name, nested_field, raw_value)
                     if nested_field:
                         dttype = (
                             cls.nested_datetime_fields()
@@ -431,19 +429,19 @@ class MainModel(BaseModel):
 
                     utc_value = value.astimezone(ZoneInfo("UTC"))
                     mdata[name] = utc_value
-                elif field.annotation in [int, Optional[int]]:
+                elif actual_type is int:
                     if type(raw_value) is str:
                         try:
                             mdata[name] = int(raw_value)
                         except ValueError:
                             mdata[name] = 0
-                elif field.annotation in [float, Optional[float]]:
+                elif actual_type is float:
                     if type(raw_value) in [Decimal128, str]:
                         try:
                             mdata[name] = float(str(raw_value))
                         except ValueError:
                             mdata[name] = 0.0
-                elif field.annotation in [int, Optional[int]]:
+                elif actual_type is int:
                     if type(raw_value) in [Int64, str]:
                         try:
                             mdata[name] = int(str(raw_value))
