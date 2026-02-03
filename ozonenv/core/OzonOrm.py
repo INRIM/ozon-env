@@ -6,7 +6,6 @@ import logging
 import os
 import sys
 import time as time_
-from curses.ascii import isalpha
 from os.path import dirname, exists
 
 import aiofiles
@@ -38,15 +37,13 @@ from ozonenv.core.db.mongodb_utils import (
 from ozonenv.core.exceptions import SessionException
 from ozonenv.core.i18n import _
 from ozonenv.core.i18n import update_translation
-from pathlib import Path
+from ozonenv.core.utils import model_camel
 
 logger = logging.getLogger(__file__)
 
 MAIN_CACHE_TIME = 800
 
 base_model_path = dirname(__file__)
-
-C_TEMPLATE_DIR: Path = Path(__file__).parents[0] / "custom_templates"
 
 
 class OzonEnvBase:
@@ -554,23 +551,13 @@ class OzonOrm:
 
     async def import_module_model(self, model_name):
 
-        def smart_title(s):
-            # Se il primo carattere è alfabetico, lo metto maiuscolo
-            if s and s[0].isalpha():
-                return s[0].upper() + s[1:]
-            return s
-
-        def camel(snake_str):
-            parts = snake_str.split("_")
-            return "".join(smart_title(word) for word in parts)
-
         def _getattribute(obj, name):
             for subpath in name.split("."):
                 parent = obj
                 obj = getattr(obj, subpath)
             return obj, parent
 
-        mclass = camel(model_name)
+        mclass = model_camel(model_name)
         module_name = f"{model_name}"
         file_path = f"{self.models_path}/{model_name}.py"
         spec = importlib.util.spec_from_file_location(module_name, file_path)
@@ -582,6 +569,12 @@ class OzonOrm:
 
     async def make_local_model(self, mod, version):
         jdata = mod.mm.model.model_json_schema()
+        # Handle nested model base_class_map
+        base_class_map = {}
+        for m in mod.mm.nested_models:
+            base_class_map[model_camel(m.model.__name__)] = (
+                "ozonenv.core.BaseModels.CoreNestedModel"
+            )
         async with aiofiles.open(
             f"/tmp/{mod.name}.json", "w+", encoding="utf-8"
         ) as mod_file:
@@ -590,10 +583,10 @@ class OzonOrm:
             f"datamodel-codegen --input /tmp/{mod.name}.json"
             f" --input-file-type jsonschema "
             f" --output {self.models_path}/{mod.name}.py "
-            f" --custom-template-dir {C_TEMPLATE_DIR} "
             f" --additional-imports \"ozonenv.core.BaseModels.CoreNestedModel\" "
             f" --output-model-type pydantic_v2.BaseModel "
             f" --use-standard-collections "
+            f" --base-class-map '{json.dumps(base_class_map)}' "
             f"--base-class ozonenv.core.BaseModels.BasicModel"
         )
         if not res:

@@ -9,9 +9,6 @@ license = "MIT"
 packages = [
     { include = "ozonenv" }
 ]
-include = [
-    "ozonenv/core/custom_templates/**/*"
-]
 exclude = ["tests/*"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",

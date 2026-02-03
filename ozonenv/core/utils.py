@@ -112,3 +112,15 @@ def unwrap_optional(annotation):
         if args:
             return args[0]
     return annotation
+
+
+def smart_title(s):
+    # Se il primo carattere è alfabetico, lo metto maiuscolo
+    if s and s[0].isalpha():
+        return s[0].upper() + s[1:]
+    return s
+
+
+def model_camel(snake_str):
+    parts = snake_str.split("_")
+    return "".join(smart_title(word) for word in parts)
