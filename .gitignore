@@ -3,6 +3,7 @@
 .pyc
 __pycache__
 env
+.venv
 dist
 .pytest_cache
 tests/i18n

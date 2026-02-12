@@ -42,10 +42,9 @@ Convenient for developers. Also useful for running the (unit)tests.
 git clone https://github.com/archetipo/ozon-env.git
 ```
 
-add virtualenv **env** Pytnon >=3.10
-
 ```
 pip install poetry
+poetry env use [>=3.10|<3.14]
 poetry install
 ```
 
