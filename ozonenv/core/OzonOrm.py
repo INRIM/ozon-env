@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Union
 
 import aiofiles
-from aiopath import AsyncPath
+from aiopathlib import AsyncPath
 from starlette.concurrency import run_in_threadpool
 
 from ozonenv.core.BaseModels import (
@@ -638,6 +638,7 @@ class OzonOrm:
             await mod_file.write(json.dumps(jdata, ensure_ascii=False))
         res = await self.runcmd(
             f"datamodel-codegen --input /tmp/{mod.name}.json"
+            f" --no-use-union-operator "
             f" --input-file-type jsonschema "
             f" --output {self.models_path}/{mod.name}.py "
             f" --custom-template-dir {C_TEMPLATE_DIR} "
