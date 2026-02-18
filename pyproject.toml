@@ -1,69 +1,76 @@
-[tool.poetry]
+[project]
 name = "ozon-env"
 version = "3.3.0"
-homepage = "https://github.com/archetipo/ozon-env"
 description = "Ozon Env API"
 readme = "README.md"
-authors = ["Alessio Gerace <alessio.gerace@gmail.com>"]
-license = "MIT"
-packages = [
-    { include = "ozonenv" }
+requires-python = ">=3.10,<4.0"
+license = { text = "MIT" }
+authors = [
+    { name = "Alessio Gerace", email = "alessio.gerace@gmail.com" }
 ]
-include = [
-    "ozonenv/core/custom_templates/**/*"
-]
-exclude = ["tests/*"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Natural Language :: English",
     "License :: OSI Approved :: MIT License",
-    'Programming Language :: Python :: 3',
-    'Programming Language :: Python :: 3 :: Only',
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: Implementation :: CPython"]
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython"
+]
 
-[build-system]
-requires = ["poetry_core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+dependencies = [
+    "pydantic>=2.12.5",
+    "httpx>=0.28.1",
+    "pytz>=2025.2",
+    "motor>=3.7.1",
+    "python-dateutil>=2.9.0",
+    "json_logic_qubit>=0.9.1",
+    "aiofiles>=25.1.0",
+    "aiopathlib>=0.6.0",
+    "jinja2>=3.1.6",
+    "Babel>=2.13.1",
+    "anyio>=4.10.0",
+    "starlette>=0.52.1",
+    "redis>=5.3.1",
+    "datamodel-code-generator==0.54.0",
+    "pendulum>=3.0.0",
+    "iso8601",
+    "setuptools>=82.0.0; python_version >= '3.12'"
+]
 
-[tool.poetry.dependencies]
-python = ">=3.10,<4.0"
-pydantic = ">=2.12.5"
-httpx = ">=0.28.1"
-pytz = ">=2025.2"
-motor = ">=3.7.1"
-python-dateutil = ">=2.9.0"
-json_logic_qubit = ">=0.9.1"
-aiofiles = ">=25.1.0"
-#aiopath = [{ version = "^0.6.11", python = ">=3.10,<3.12" }, { version = ">=0.7.7", python = ">=3.12,<4" }]
-aiopathlib = ">=0.6.0"
-setuptools = { version = ">=82.0.0", python = ">=3.12" }
-jinja2 = ">=3.1.6"
-Babel = ">=2.13.1"
-anyio = ">=4.10.0"
-starlette = ">=0.52.1"
-redis = ">=5.3.1"
-datamodel-code-generator = "==0.54.0"
-pendulum = ">=3.0.0"
-iso8601 = "*"
-
-
-[tool.poetry.extras]
+[project.optional-dependencies]
 json_logic = ["json_logic_qubit"]
 
+dev = [
+    "pytest-asyncio>=0.23.4",
+    "pytest-mock",
+    "pytest-cov==4.1.0",
+    "flake9>=3.8.3",
+    "isort>=5.8.0",
+    "black>=22.10.0",
+    "types-toml",
+    "httpx",
+    "iso8601"
+]
 
-[tool.poetry.group.dev.dependencies]
-pytest-asyncio = ">=0.23.4"
-pytest-mock = "*"
-pytest-cov = "4.1.0"
-flake9 = ">=3.8.3"
-isort = ">=5.8.0"
-black = ">=22.10.0"
-types-toml = "*"
-httpx = "*"
-iso8601 = "*"
+[project.urls]
+Homepage = "https://github.com/archetipo/ozon-env"
+
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"
+
+# --- Poetry specific (non PEP 621) ---
+
+[tool.poetry]
+packages = [{ include = "ozonenv" }]
+include = ["ozonenv/core/custom_templates/**/*"]
+exclude = ["tests/*"]
+
+# --- Tooling ---
 
 [tool.flake8]
 max-complexity = 15
@@ -73,7 +80,7 @@ extend-ignore = "E203,W293,W291,E211"
 [tool.black]
 line-length = 79
 skip-string-normalization = true
-exclude = '(tests/data|\.eggs|\.git|\.hg|\.mypy_cache|\.nox|\.tox|\.venv|_build|buck-out|build|dist|.*\/models\.py.*|.*\/models\/.*)'
+exclude = "(tests/data|\\.eggs|\\.git|\\.hg|\\.mypy_cache|\\.nox|\\.tox|\\.venv|_build|buck-out|build|dist|.*/models\\.py.*|.*/models/.*)"
 
 [tool.isort]
 line_length = 79
@@ -87,10 +94,9 @@ filterwarnings = [
     "error",
     "ignore::UserWarning",
     "ignore::DeprecationWarning",
-    # note the use of single quote below to denote "raw" strings in TOML
-    'ignore:function ham\(\) is deprecated:DeprecationWarning',
+    "ignore:function ham\\(\\) is deprecated:DeprecationWarning",
 ]
-show-capture = 'all'
+show-capture = "all"
 
 [tool.coverage.report]
 ignore_errors = true
@@ -100,8 +106,8 @@ exclude_lines = [
     "raise NotImplementedError",
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
-    "if not TYPE_CHECKING:"]
-
+    "if not TYPE_CHECKING:"
+]
 omit = [
     "tests/*",
     "ozonenv/core/cache/*",
@@ -109,8 +115,3 @@ omit = [
     "ozonenv/core/utils.py",
     "ozonenv/core/OzonClient.py"
 ]
-
-
-
-
-
