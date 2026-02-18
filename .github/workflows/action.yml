@@ -1,46 +1,39 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
 
 jobs:
   ci:
+    name: Test on Python ${{ matrix.python-version }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
     permissions:
       contents: read
       pull-requests: write
-    name: Test on Python ${{ matrix.python-version }} and ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
         os: [ubuntu-latest]
-    defaults:
-      run:
-        shell: bash
+
     env:
-      OS: ${{ matrix.os }}
-      PYTHON: ${{ matrix.python-version }}
       LANG: it_IT.UTF-8
       LC_ALL: it_IT.UTF-8
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-
-
-      - name: Set up Docker Compose
-        uses: docker/setup-compose-action@v1
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: "pip"
 
-      - name: Configure locale to it_IT.UTF-8
+      - name: Configure locale
         run: |
           sudo apt-get update
           sudo apt-get install -y locales
@@ -51,18 +44,23 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install poetry
-          pip install -e .
-          poetry install --no-interaction --no-root
+          poetry config virtualenvs.create false
+          poetry install --no-interaction
 
-      - name: Test with pytest
-        run: |
-          docker compose up -d
-          poetry run pytest --cov --cov-report=html
-          docker compose down
+      - name: Start services
+        run: docker compose up -d --build
+
+      - name: Run tests
+        run: poetry run pytest --cov --cov-report=xml
+
+      - name: Stop services
+        if: always()
+        run: docker compose down -v
 
       - name: Coveralls
+        if: matrix.python-version == '3.14'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python -m pip install coveralls
+          pip install coveralls
           coveralls --service=github

@@ -1,5 +1,3 @@
-
-
 <h2 align="center">ozon-env</h2>
 
 <p align="center">
@@ -9,55 +7,115 @@
 <a href="https://github.com/archetipo/ozon-env"><img alt="Code style: black" src="https://img.shields.io/badge/code%20style-black-000000.svg"></a>
 </p>
 
-ozon-env lib is an api system to interact with [Service App](https://github.com/INRIM/service-app) project
+# ozon-env
+
+**ozon-env is a runtime self-compiling domain engine.**
+
+It dynamically compiles schema definitions stored in the database into executable domain models at runtime — without requiring application restarts.
+
+Designed to power:
+
+- Web applications  
+- Distributed business logic workers  
+- Event-driven task processors  
+- AI-driven domain agents  
+
+---
+
+## Core Concept
+
+Schema definitions are stored in the database.
+
+At runtime, ozon-env:
+
+1. Reads schema metadata  
+2. Generates Python domain models  
+3. Dynamically imports and loads them  
+4. Executes business logic on top of them
+
+Schema (DB)
+    ↓
+Runtime Model Compilation
+    ↓
+Domain Model (Pydantic-based)
+    ↓
+Worker / Web App / Agent Layer
+
+It integrates with the Service App￼ project.
 
 For information about the Service App project,
 see https://github.com/INRIM/service-app
 
+Models are regenerated automatically when their schema version changes.
+
+No service restart is required.
+
+---
+
+## Architecture
+
+### Dynamic Model Compilation
+- Generates Python models from stored schema
+- Uses Pydantic for validation and typing
+- Hot-reloads models when schema updates
+
+### Domain Runtime Environment (Env)
+- Isolated execution scope
+- Session-based lifecycle
+- Supports concurrent environments
+
+### Business Logic Workers
+- Designed for distributed execution
+- Compatible with task brokers (e.g. Redis streams)
+- Idempotent task execution
+- Suitable for BPMN-driven workflows
+
+### Domain-Aware Execution
+- Selection fields and dynamic options
+- Nested models
+- Datetime normalization
+- Data transformation layer
+
+---
+
+## Integration
+
+ozon-env integrates with the  
+[Service App project](https://github.com/INRIM/service-app)
+
+Service App provides:
+- Web UI
+- Schema management
+- Workflow integration
+
+ozon-env provides:
+- Domain runtime
+- Model compilation
+- Business logic execution
+
+---
+
 ## Installation
 
-The source code is currently hosted on GitHub at:
-https://github.com/archetipo/ozon-env
+### PyPI
 
-### PyPI - Python Package Index
-
-Binary installers for the latest released version are available at the [Python
-Package Index](https://pypi.python.org/pypi/ozon-env)
-
-```sh
-pip(3) install ozon-env
-```
-
-```sh
-poetry install --without dev
-```
-
+```bash
+pip install ozon-env
+````
 or
+```bash
+poetry add ozon-env
+````
 
-### Source Install with Poetry (recommended)
-
-Convenient for developers. Also useful for running the (unit)tests.
-
-```sh
+### Source Install (Poetry recommended)
+```bash
 git clone https://github.com/archetipo/ozon-env.git
-```
-
-add virtualenv **env** Pytnon >=3.10
-
-```
+cd ozon-env
 pip install poetry
 poetry install
 ```
 
-### Source Install with pip
-
-Optional dependencies need to be installed separately.
-
-```sh
-pip(3) install git+https://github.com/archetipo/ozon-env
-```
-
-### Tests, Coverage and Code style
+### Running Tests
 
 ```
 ./run_test.sh
@@ -66,6 +124,8 @@ pip(3) install git+https://github.com/archetipo/ozon-env
 ## License
 
 [MIT](LICENSE)
+
+### Designed by Alessio Gerace
 
 ## Contributing
 

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ozon-env"
-version = "3.2.0"
+version = "3.3.0"
 homepage = "https://github.com/archetipo/ozon-env"
 description = "Ozon Env API"
 readme = "README.md"
@@ -54,7 +54,7 @@ iso8601 = "*"
 json_logic = ["json_logic_qubit"]
 
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
 pytest-asyncio = ">=0.23.4"
 pytest-mock = "*"
 pytest-cov = "4.1.0"

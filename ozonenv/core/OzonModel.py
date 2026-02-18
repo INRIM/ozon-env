@@ -1,19 +1,17 @@
 import asyncio
 import copy
+import json
 import locale
 import logging
 import re
-import json
 from datetime import datetime, timedelta
-from typing import Any, Union
+from typing import Any, Union, AsyncIterator, Optional
 
 import bson
 import pydantic
 import pymongo
 from bson import ObjectId, Decimal128
-from pydantic._internal._model_construction import ModelMetaclass
-from pymongo.errors import DuplicateKeyError, OperationFailure
-
+from motor.motor_asyncio import AsyncIOMotorCommandCursor, AsyncIOMotorCursor
 from ozonenv.core.BaseModels import (
     Component,
     BasicModel,
@@ -29,7 +27,13 @@ from ozonenv.core.ModelMaker import ModelMaker
 from ozonenv.core.ModelService import ModelService
 from ozonenv.core.exceptions import SessionException
 from ozonenv.core.i18n import _
-from ozonenv.core.utils import is_json, traverse_and_convertd_datetime
+from ozonenv.core.utils import (
+    is_json,
+    traverse_and_convertd_datetime,
+)
+from pydantic._internal._model_construction import ModelMetaclass
+from pymongo.errors import DuplicateKeyError, OperationFailure
+from typing_extensions import deprecated
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +291,8 @@ class OzonMBase:
         mm = False
         if not virtual and not as_virtual:
             data = model.normalize_datetime_fields(tz, data)
+            if "_id" in data:
+                data["_id"] = str(data["_id"])
             data = await self.make_data_value(
                 copy.deepcopy(data), pdata_value=data.get("data_value", {})
             )
@@ -452,6 +458,31 @@ class OzonModelBase(OzonMBase):
     async def by_name(self, name: str) -> CoreModel:
         return await self.load({'rec_name': name})
 
+    async def collect_dump(
+        self,
+        models: list,
+        resp_type: str = "dict",
+        max_concurrency: int = 10,
+    ) -> Union[list[Any], list[dict], str]:
+        sem = asyncio.Semaphore(max_concurrency)
+
+        async def worker(model):
+            async with sem:
+                if resp_type == "json":
+                    return await model.dump_model_async()
+                elif resp_type == "dict":
+                    return json.loads(await model.dump_model_async())
+                else:
+                    return model
+
+        results = await asyncio.gather(*(worker(m) for m in models))
+
+        if resp_type == "json":
+            return json.dumps(results)
+
+        return results
+
+    @deprecated("Use collect_dump instead")
     async def parallel_dump(self, models, max_concurrency=10):
         sem = asyncio.Semaphore(max_concurrency)
 
@@ -463,6 +494,19 @@ class OzonModelBase(OzonMBase):
         json_list = await asyncio.gather(*tasks)
         merged = "[" + ",".join(json_list) + "]"
         return merged
+
+    async def stream_json(self, model_stream: AsyncIterator):
+        first = True
+        yield "["
+
+        async for model in model_stream:
+            data = await model.dump_model_dict_async()
+            if not first:
+                yield ","
+            yield json.dumps(data)
+            first = False
+
+        yield "]"
 
     async def new(
         self,
@@ -671,17 +715,12 @@ class OzonModelBase(OzonMBase):
 
     async def insert_many(
         self, records: list[CoreModel], resp_type="model"
-    ) -> list[Union[None, CoreModel, dict]]:
+    ) -> Union[list[Union[None, CoreModel]], list[dict], str]:
         start = await self.count()
         results = await asyncio.gather(
             *(self._insert(r, start + records.index(r)) for r in records)
         )
-        if resp_type == "json":
-            results = await self.parallel_dump(results)
-        elif resp_type == "dict":
-            res = await self.parallel_dump(results)
-            results = json.loads(res)
-        return results
+        return await self.collect_dump(results, resp_type=resp_type)
 
     async def copy(self, domain) -> Union[None, CoreModel]:
         self.init_status()
@@ -803,22 +842,17 @@ class OzonModelBase(OzonMBase):
         records: list[CoreModel],
         force_update_whole_record=False,
         resp_type="model",
-    ) -> list[Union[None, CoreModel]]:
-
+    ) -> Union[list[Union[None, CoreModel]], list[dict], str]:
         results = await asyncio.gather(
             *(
                 self.update(
                     r, force_update_whole_record=force_update_whole_record
                 )
                 for r in records
-            )
+            ),
+            return_exceptions=True,
         )
-        if resp_type == "json":
-            results = await self.parallel_dump(results)
-        elif resp_type == "dict":
-            res = await self.parallel_dump(results)
-            results = json.loads(res)
-        return results
+        return await self.collect_dump(results, resp_type=resp_type)
 
     async def remove(self, record: CoreModel) -> bool:
         self.init_status()
@@ -881,14 +915,16 @@ class OzonModelBase(OzonMBase):
             data["id"] = str(data["id"])
         return data
 
+    @deprecated("Use process_stream instead")
     async def process_all(self, datas) -> list[Any]:
+        # deprecated
         if not datas:
             return []
 
         async def process_one(rec_data):
-            rec_data.pop("_id", None)
-            if isinstance(rec_data.get("id"), ObjectId):
-                rec_data["id"] = str(rec_data["id"])
+            # rec_data.pop("_id", None)
+            # if isinstance(rec_data.get("id"), ObjectId):
+            #     rec_data["id"] = str(rec_data["id"])
             modelr, mm = await self._load_data(
                 self.model,
                 rec_data,
@@ -903,86 +939,210 @@ class OzonModelBase(OzonMBase):
         results = await asyncio.gather(*(process_one(d) for d in datas))
         return results
 
-    async def find(
+    async def process_stream(
         self,
-        domain: dict,
+        cursor: AsyncIterator[dict],
+    ) -> AsyncIterator[Any]:
+
+        async for rec_data in cursor:
+            rec_data.pop("_id", None)
+
+            if isinstance(rec_data.get("id"), ObjectId):
+                rec_data["id"] = str(rec_data["id"])
+
+            modelr, _ = await self._load_data(
+                self.model,
+                rec_data,
+                self.virtual,
+                self.data_model,
+                self.is_session_model,
+                self.tz,
+                self.virtual_fields_parser,
+            )
+
+            yield modelr
+
+    def build_projection_from_obfuscate_fields(self, obfuscate_fields=None):
+
+        obfuscate_fields = set(obfuscate_fields or [])
+        projection = {}
+
+        for name, field in self.model.model_fields.items():
+
+            if name in obfuscate_fields:
+
+                obf_value = (
+                    field.json_schema_extra.get("obfuscate_value")
+                    if field.json_schema_extra
+                    else None
+                )
+
+                if obf_value is not None:
+                    projection[name] = {"$literal": obf_value}
+                else:
+                    if isinstance(field.default, str):
+                        projection[name] = {"$literal": "**OMISSIS**"}
+                    else:
+                        projection[name] = {"$literal": field.default}
+
+            else:
+                projection[name] = f"${name}"
+
+        return projection
+
+    async def stream_find(
+        self,
+        domain: Optional[dict[str, Any]] = None,
         sort: str = "",
         limit=0,
         skip=0,
-        pipeline_items=[],
-        resp_type="model",
-    ) -> list[Any]:
-        datas = await self.find_raw(
-            domain,
+        pipeline_items: Optional[list[str]] = None,
+        obfuscate_fields: Optional[list[str]] = None,
+        fields: Optional[dict] = None,
+        batch_size: int = 500,
+    ):
+        cursor = await self.find_raw(
+            domain=domain,
             sort=sort,
             limit=limit,
             skip=skip,
             pipeline_items=pipeline_items,
-            fields={},
+            obfuscate_fields=obfuscate_fields,
+            fields=fields,
+            need_cursor=True,
+            batch_size=batch_size,
         )
-        results = []
-        if not self.virtual:
-            results = await self.process_all(datas)
-        else:
-            for rec in datas:
-                await self.load_data(rec)
-                results.append(self.modelr)
-        if resp_type == "json":
-            results = await self.parallel_dump(results)
-        elif resp_type == "dict":
-            res = await self.parallel_dump(results)
-            results = json.loads(res)
-        return results
+        async for rec_data in cursor:
+            rec_data.pop("_id", None)
 
-    async def find_raw(
+            if isinstance(rec_data.get("id"), ObjectId):
+                rec_data["id"] = str(rec_data["id"])
+
+            modelr, _ = await self._load_data(
+                self.model,
+                rec_data,
+                self.virtual,
+                self.data_model,
+                self.is_session_model,
+                self.tz,
+                self.virtual_fields_parser,
+            )
+
+            yield modelr
+
+    async def find(
         self,
-        domain: dict,
+        domain: Optional[dict[str, Any]] = None,
         sort: str = "",
         limit=0,
         skip=0,
-        pipeline_items=[],
-        fields={},
-    ) -> list[Any]:
+        pipeline_items: Optional[list[str]] = None,
+        obfuscate_fields: Optional[list[str]] = None,
+        fields: Optional[dict] = None,
+        resp_type="model",
+    ) -> Union[list[Union[None, CoreModel]], list[dict], str]:
+        result = await self.find_raw(
+            domain=domain,
+            sort=sort,
+            limit=limit,
+            skip=skip,
+            pipeline_items=pipeline_items,
+            obfuscate_fields=obfuscate_fields,
+            fields=fields,
+            need_cursor=True,
+        )
+        results = []
+        if isinstance(result, list):
+            # modalità già materializzata
+            for rec in result:
+                modelr, _ = await self._load_data(
+                    self.model,
+                    rec,
+                    self.virtual,
+                    self.data_model,
+                    self.is_session_model,
+                    self.tz,
+                    self.virtual_fields_parser,
+                )
+                results.append(modelr)
+
+        else:
+            # modalità cursor
+            results = [item async for item in self.process_stream(result)]
+
+        return await self.collect_dump(results, resp_type=resp_type)
+
+    async def find_raw(
+        self,
+        domain: Optional[dict[str, Any]] = None,
+        sort: str = "",
+        limit=0,
+        skip=0,
+        pipeline_items: Optional[list[str]] = None,
+        obfuscate_fields: Optional[list[str]] = None,
+        fields: Optional[dict] = None,
+        batch_size: int = 0,
+        need_cursor: bool = False,
+    ) -> Union[
+        list[Any], AsyncIOMotorCommandCursor, AsyncIOMotorCursor, list, None
+    ]:
         self.init_status()
-        domain = traverse_and_convertd_datetime(domain)
         if self.virtual and not self.data_model:
             msg = _(
                 "Data Model is required for virtual model to get data from db"
             )
             self.error_status(msg, domain)
             return []
+        domain = domain or {}
+        fields = fields or {}
+        projection = None
+        domain = traverse_and_convertd_datetime(domain)
+        if obfuscate_fields:
+            projection = self.build_projection_from_obfuscate_fields(
+                obfuscate_fields
+            )
         _sort = self.eval_sort_str(sort)
         coll = self.db.engine.get_collection(self.data_model)
-        if fields and not pipeline_items:
+        if not pipeline_items and not projection:
             res = []
             if limit > 0:
-                datas = (
+                cursor = (
                     coll.find(domain, projection=fields)
-                    .sort(sort)
+                    .sort([(k, v) for k, v in _sort.items()])
                     .skip(skip)
                     .limit(limit)
                 )
             elif sort:
-                datas = coll.find(domain, projection=fields).sort(sort)
+                cursor = coll.find(domain, projection=fields).sort(
+                    [(k, v) for k, v in _sort.items()]
+                )
             else:
-                datas = coll.find(domain, projection=fields)
-            if datas:
-                return await datas.to_list(length=None)
-        else:
-            res = []
+                cursor = coll.find(domain, projection=fields)
+            if need_cursor:
+                return cursor
+            else:
+                return await cursor.to_list(length=None)
+        elif pipeline_items or projection:
             pipeline = [{"$match": domain}]
-            for item in pipeline_items:
-                pipeline.append(item)
             if _sort:
                 pipeline.append({"$sort": _sort})
             if limit > 0:
                 pipeline.append({"$skip": skip})
                 pipeline.append({"$limit": limit})
-            datas = coll.aggregate(pipeline)
-            if datas:
-                return await datas.to_list(length=None)
-
-        return res
+            if pipeline_items:
+                for item in pipeline_items:
+                    pipeline.append(item)
+            elif projection:
+                pipeline.append({"$project": projection})
+            if batch_size > 0:
+                cursor = coll.aggregate(pipeline, batchSize=batch_size)
+            else:
+                cursor = coll.aggregate(pipeline)
+            if need_cursor:
+                return cursor
+            else:
+                return await cursor.to_list(length=None)
+        return None
 
     async def aggregate_raw(
         self, pipeline: list, sort: str = "", limit=0, skip=0
@@ -1006,7 +1166,7 @@ class OzonModelBase(OzonMBase):
         skip=0,
         as_virtual=True,
         resp_type="model",
-    ) -> list[CoreModel]:
+    ) -> Union[list[Union[None, CoreModel]], list[dict], str]:
         datas = await self.aggregate_raw(
             pipeline, sort=sort, limit=limit, skip=skip
         )
@@ -1017,12 +1177,10 @@ class OzonModelBase(OzonMBase):
             for rec in datas:
                 await self.load_data(rec, as_virtual=as_virtual)
                 results.append(self.modelr)
-        if resp_type == "json":
-            results = await self.parallel_dump(results)
-        elif resp_type == "dict":
-            res = await self.parallel_dump(results)
-            results = json.loads(res)
-        return results
+
+        if resp_type == "model":
+            return results
+        return await self.collect_dump(results, resp_type=resp_type)
 
     async def distinct(self, field_name: str, query: dict) -> list[Any]:
         self.init_status()
