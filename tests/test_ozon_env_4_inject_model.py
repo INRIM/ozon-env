@@ -258,7 +258,7 @@ async def test_aggregation_with_product2():
             }
         },
     ]
-    products = await product_model.aggregate(pipeline_items, sort="label:asc")
+    products = await product_model.find(pipeline_items=pipeline_items, sort="label:asc")
     assert products[3].row_action == "list_product/prod2"
     assert products[3].rec_name == "prod2"
     assert products[3].quantity == 2
@@ -269,8 +269,8 @@ async def test_aggregation_with_product2():
     pipeline_items.append(
         {"$group": {"_id": None, f"{tot_field}": {"$sum": "$tot"}}}
     )
-    products = await product_model.aggregate(
-        pipeline_items, sort="label:asc", as_virtual=True
+    products = await product_model.find(
+        pipeline_items=pipeline_items, sort="label:asc", as_virtual=True
     )
     assert products[0].get(tot_field) == 904.5
 
@@ -314,20 +314,20 @@ async def test_set_to_delete_product():
             }
         },
     ]
-    products = await product_model.aggregate(pipeline_items, sort="label:asc")
+    products = await product_model.find(pipeline_items=pipeline_items, sort="label:asc")
     assert len(products) == 10
     res = await product_model.set_to_delete(products[3])
     assert res.rec_name == "prod2"
     assert res.deleted > 0
-    products = await product_model.aggregate(
-        pipeline_items,
+    products = await product_model.find(
+        pipeline_items=pipeline_items,
         sort="label:asc",
     )
     assert products[3].rec_name == "prod4"
     assert len(products) == 9
 
     pipeline_items[0] = {"$match": product_model.get_domain_archived()}
-    products = await product_model.aggregate(pipeline_items, sort="label:asc")
+    products = await product_model.find(pipeline_items=pipeline_items, sort="label:asc")
     assert len(products) == 1
     assert products[0].rec_name == "prod2"
     assert products[0].deleted > 0

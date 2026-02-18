@@ -6,6 +6,7 @@ import logging
 import re
 from datetime import datetime, timedelta
 from typing import Any, Union, AsyncIterator, Optional
+from typing_extensions import deprecated
 
 import bson
 import pydantic
@@ -33,7 +34,6 @@ from ozonenv.core.utils import (
 )
 from pydantic._internal._model_construction import ModelMetaclass
 from pymongo.errors import DuplicateKeyError, OperationFailure
-from typing_extensions import deprecated
 
 logger = logging.getLogger(__name__)
 
@@ -996,7 +996,7 @@ class OzonModelBase(OzonMBase):
         sort: str = "",
         limit=0,
         skip=0,
-        pipeline_items: Optional[list[str]] = None,
+        pipeline_items: Optional[list[dict[str, Any]]] = None,
         obfuscate_fields: Optional[list[str]] = None,
         fields: Optional[dict] = None,
         batch_size: int = 500,
@@ -1036,7 +1036,7 @@ class OzonModelBase(OzonMBase):
         sort: str = "",
         limit=0,
         skip=0,
-        pipeline_items: Optional[list[str]] = None,
+        pipeline_items: Optional[list[dict[str, Any]]] = None,
         obfuscate_fields: Optional[list[str]] = None,
         fields: Optional[dict] = None,
         resp_type="model",
@@ -1076,101 +1076,148 @@ class OzonModelBase(OzonMBase):
         self,
         domain: Optional[dict[str, Any]] = None,
         sort: str = "",
-        limit=0,
-        skip=0,
-        pipeline_items: Optional[list[str]] = None,
+        limit: int = 0,
+        skip: int = 0,
+        pipeline_items: Optional[list[dict[str, Any]]] = None,
         obfuscate_fields: Optional[list[str]] = None,
         fields: Optional[dict] = None,
         batch_size: int = 0,
         need_cursor: bool = False,
-    ) -> Union[
-        list[Any], AsyncIOMotorCommandCursor, AsyncIOMotorCursor, list, None
-    ]:
+    ):
         self.init_status()
+
         if self.virtual and not self.data_model:
             msg = _(
                 "Data Model is required for virtual model to get data from db"
             )
             self.error_status(msg, domain)
             return []
-        domain = domain or {}
+
+        domain = traverse_and_convertd_datetime(domain or {})
         fields = fields or {}
-        projection = None
-        domain = traverse_and_convertd_datetime(domain)
+
+        # 👉 Delegate if pipeline
+        if pipeline_items:
+            return await self.aggregate_raw(
+                domain=domain,
+                sort=sort,
+                limit=limit,
+                skip=skip,
+                pipeline_items=pipeline_items,
+                obfuscate_fields=obfuscate_fields,
+                fields=fields,
+                batch_size=batch_size,
+                need_cursor=need_cursor,
+            )
+
+        # ---- Simple find path only here ----
+        coll = self.db.engine.get_collection(self.data_model)
+        _sort = self.eval_sort_str(sort)
+
+        cursor = coll.find(domain, projection=fields)
+
+        if _sort:
+            cursor = cursor.sort([(k, v) for k, v in _sort.items()])
+
+        if skip > 0:
+            cursor = cursor.skip(skip)
+
+        if limit > 0:
+            cursor = cursor.limit(limit)
+
+        if batch_size > 0:
+            cursor.batch_size(batch_size)
+
+        if need_cursor:
+            return cursor
+
+        return await cursor.to_list(length=None)
+
+    async def aggregate_raw(
+        self,
+        domain: Optional[dict[str, Any]] = None,
+        sort: str = "",
+        limit: int = 0,
+        skip: int = 0,
+        pipeline_items: Optional[list[dict[str, Any]]] = None,
+        obfuscate_fields: Optional[list[str]] = None,
+        fields: Optional[dict] = None,
+        batch_size: int = 0,
+        need_cursor: bool = False,
+    ) -> Union[list[Any], AsyncIOMotorCommandCursor, None]:
+        coll = self.db.engine.get_collection(self.data_model)
+        _sort = self.eval_sort_str(sort)
+
+        pipeline: list[dict[str, Any]] = [{"$match": domain or {}}]
+
+        for item in pipeline_items or []:
+            if not isinstance(item, dict):
+                raise ValueError("Pipeline item must be dict")
+
+            stage = list(item.keys())[0]
+            if stage in {"$out", "$merge", "$function"}:
+                raise ValueError(f"Stage {stage} not allowed")
+
+            pipeline.append(item)
+
+        if _sort:
+            pipeline.append({"$sort": _sort})
+
+        if skip > 0:
+            pipeline.append({"$skip": skip})
+
+        if limit > 0:
+            pipeline.append({"$limit": limit})
+
         if obfuscate_fields:
             projection = self.build_projection_from_obfuscate_fields(
                 obfuscate_fields
             )
-        _sort = self.eval_sort_str(sort)
-        coll = self.db.engine.get_collection(self.data_model)
-        if not pipeline_items and not projection:
-            res = []
-            if limit > 0:
-                cursor = (
-                    coll.find(domain, projection=fields)
-                    .sort([(k, v) for k, v in _sort.items()])
-                    .skip(skip)
-                    .limit(limit)
-                )
-            elif sort:
-                cursor = coll.find(domain, projection=fields).sort(
-                    [(k, v) for k, v in _sort.items()]
-                )
-            else:
-                cursor = coll.find(domain, projection=fields)
-            if need_cursor:
-                return cursor
-            else:
-                return await cursor.to_list(length=None)
-        elif pipeline_items or projection:
-            pipeline = [{"$match": domain}]
-            if _sort:
-                pipeline.append({"$sort": _sort})
-            if limit > 0:
-                pipeline.append({"$skip": skip})
-                pipeline.append({"$limit": limit})
-            if pipeline_items:
-                for item in pipeline_items:
-                    pipeline.append(item)
-            elif projection:
-                pipeline.append({"$project": projection})
-            if batch_size > 0:
-                cursor = coll.aggregate(pipeline, batchSize=batch_size)
-            else:
-                cursor = coll.aggregate(pipeline)
-            if need_cursor:
-                return cursor
-            else:
-                return await cursor.to_list(length=None)
-        return None
+            pipeline.append({"$project": projection})
+        elif fields:
+            pipeline.append({"$project": fields})
 
-    async def aggregate_raw(
-        self, pipeline: list, sort: str = "", limit=0, skip=0
-    ) -> list[Any]:
-        pipeline = traverse_and_convertd_datetime(pipeline)
-        if sort:
-            _sort = self.eval_sort_str(sort)
-            pipeline.append({"$sort": _sort})
-        if limit > 0:
-            pipeline.append({"$skip": skip})
-            pipeline.append({"$limit": limit})
-        coll = self.db.engine.get_collection(self.data_model)
-        datas = await coll.aggregate(pipeline).to_list(length=None)
-        return datas
+        if batch_size > 0:
+            cursor = coll.aggregate(pipeline, batchSize=batch_size)
+        else:
+            cursor = coll.aggregate(pipeline)
 
+        if need_cursor:
+            return cursor
+
+        return await cursor.to_list(length=None)
+
+    @deprecated("since version 3.3.1; use 'find' instead. This method will be removed in version 3.4.0.")
     async def aggregate(
         self,
-        pipeline: list,
+        pipeline: list[dict],
         sort: str = "",
-        limit=0,
-        skip=0,
-        as_virtual=True,
-        resp_type="model",
+        limit: int = 0,
+        skip: int = 0,
+        as_virtual: bool = True,
+        resp_type: str = "model",
     ) -> Union[list[Union[None, CoreModel]], list[dict], str]:
-        datas = await self.aggregate_raw(
-            pipeline, sort=sort, limit=limit, skip=skip
+
+        # Se pipeline contiene già $match lo estraiamo
+        domain = {}
+        pipeline_items = []
+
+        for stage in pipeline:
+            if "$match" in stage and not domain:
+                domain = stage["$match"]
+            else:
+                pipeline_items.append(stage)
+
+        datas = await self.find(
+            domain=domain,
+            sort=sort,
+            limit=limit,
+            skip=skip,
+            pipeline_items=pipeline_items,
         )
+
         results = []
+
         if not self.virtual and not as_virtual:
             results = await self.process_all(datas)
         else:
@@ -1180,6 +1227,7 @@ class OzonModelBase(OzonMBase):
 
         if resp_type == "model":
             return results
+
         return await self.collect_dump(results, resp_type=resp_type)
 
     async def distinct(self, field_name: str, query: dict) -> list[Any]:
@@ -1197,55 +1245,60 @@ class OzonModelBase(OzonMBase):
 
     async def search_all_distinct(
         self,
-        distinct="",
-        query: dict = {},
-        compute_label="",
+        distinct: str = "",
+        query: Optional[dict] = None,
+        compute_label: str = "",
         sort: str = "",
-        limit=0,
-        skip=0,
-        raw_result=False,
+        limit: int = 0,
+        skip: int = 0,
+        raw_result: bool = False,
     ) -> list[Any]:
         self.init_status()
-        query = traverse_and_convertd_datetime(query)
+
+        query = traverse_and_convertd_datetime(query or {})
+
         if self.virtual and not self.data_model:
             msg = _(
                 "Data Model is required for virtual model to get data from db"
             )
             self.error_status(msg, query)
             return []
+
         if not query:
             query = {"deleted": 0}
+
+        # ---- label logic ----
         label = {"$first": "$title"}
-        label_lst = compute_label.split(",")
-        project = {
+        label_lst = compute_label.split(",") if compute_label else []
+
+        project: dict[str, Any] = {
             distinct: {"$toString": f"${distinct}"},
             "value": {"$toString": f"${distinct}"},
             "type": {"$toString": "$type"},
         }
+
         if compute_label:
-            if len(label_lst) > 0:
+            if len(label_lst) > 1:
                 block = []
                 for item in label_lst:
-                    if len(block) > 0:
+                    if block:
                         block.append(" - ")
                     block.append(f"${item}")
-                    project.update({item: {"$toString": f"${item}"}})
+                    project[item] = {"$toString": f"${item}"}
                 label = {"$first": {"$concat": block}}
-
             else:
-                project.update(
-                    {label_lst[0]: {"$toString": f"${label_lst[0]}"}}
-                )
-                label = {"$first": f"${label_lst[0]}"}
+                field = label_lst[0]
+                project[field] = {"$toString": f"${field}"}
+                label = {"$first": f"${field}"}
         else:
-            project.update({"title": 1})
-        pipeline = [
-            {"$match": query},
+            project["title"] = 1
+
+        pipeline_items = [
             {"$project": project},
             {
                 "$group": {
                     "_id": "$_id",
-                    f"{distinct}": {"$first": f"${distinct}"},
+                    distinct: {"$first": f"${distinct}"},
                     "value": {"$first": f"${distinct}"},
                     "title": label,
                     "label": label,
@@ -1253,13 +1306,22 @@ class OzonModelBase(OzonMBase):
                 }
             },
         ]
+
         if raw_result:
-            return await self.aggregate_raw(
-                pipeline, sort=sort, limit=limit, skip=skip
+            return await self.find_raw(
+                domain=query,
+                sort=sort,
+                limit=limit,
+                skip=skip,
+                pipeline_items=pipeline_items,
             )
         else:
-            return await self.aggregate(
-                pipeline, sort=sort, limit=limit, skip=skip
+            return await self.find(
+                domain=query,
+                sort=sort,
+                limit=limit,
+                skip=skip,
+                pipeline_items=pipeline_items,
             )
 
     async def set_to_delete(self, record: CoreModel) -> Union[None, CoreModel]:
