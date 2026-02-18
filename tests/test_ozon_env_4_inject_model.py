@@ -1,8 +1,9 @@
+from datetime import datetime
+
 from ozonenv.OzonEnv import OzonEnv
 from ozonenv.core.BaseModels import CoreModel
 from ozonenv.core.exceptions import SessionException
 from test_common import *
-from datetime import datetime
 
 pytestmark = pytest.mark.asyncio
 
@@ -258,7 +259,9 @@ async def test_aggregation_with_product2():
             }
         },
     ]
-    products = await product_model.find(pipeline_items=pipeline_items, sort="label:asc")
+    products = await product_model.find(
+        pipeline_items=pipeline_items, as_virtual=True, sort="label:asc"
+    )
     assert products[3].row_action == "list_product/prod2"
     assert products[3].rec_name == "prod2"
     assert products[3].quantity == 2
@@ -314,20 +317,23 @@ async def test_set_to_delete_product():
             }
         },
     ]
-    products = await product_model.find(pipeline_items=pipeline_items, sort="label:asc")
+    products = await product_model.find(
+        pipeline_items=pipeline_items, sort="label:asc", as_virtual=True
+    )
     assert len(products) == 10
     res = await product_model.set_to_delete(products[3])
     assert res.rec_name == "prod2"
     assert res.deleted > 0
     products = await product_model.find(
-        pipeline_items=pipeline_items,
-        sort="label:asc",
+        pipeline_items=pipeline_items, sort="label:asc", as_virtual=True
     )
     assert products[3].rec_name == "prod4"
     assert len(products) == 9
 
     pipeline_items[0] = {"$match": product_model.get_domain_archived()}
-    products = await product_model.find(pipeline_items=pipeline_items, sort="label:asc")
+    products = await product_model.find(
+        pipeline_items=pipeline_items, sort="label:asc"
+    )
     assert len(products) == 1
     assert products[0].rec_name == "prod2"
     assert products[0].deleted > 0

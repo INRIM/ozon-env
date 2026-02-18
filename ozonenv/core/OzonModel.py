@@ -1040,7 +1040,9 @@ class OzonModelBase(OzonMBase):
         obfuscate_fields: Optional[list[str]] = None,
         fields: Optional[dict] = None,
         resp_type="model",
+        as_virtual: bool = False,
     ) -> Union[list[Union[None, CoreModel]], list[dict], str]:
+
         result = await self.find_raw(
             domain=domain,
             sort=sort,
@@ -1051,14 +1053,16 @@ class OzonModelBase(OzonMBase):
             fields=fields,
             need_cursor=True,
         )
+
         results = []
+        effective_virtual = self.virtual or as_virtual
         if isinstance(result, list):
             # modalità già materializzata
             for rec in result:
                 modelr, _ = await self._load_data(
                     self.model,
                     rec,
-                    self.virtual,
+                    effective_virtual,
                     self.data_model,
                     self.is_session_model,
                     self.tz,
@@ -1068,7 +1072,17 @@ class OzonModelBase(OzonMBase):
 
         else:
             # modalità cursor
-            results = [item async for item in self.process_stream(result)]
+            async for item in result:
+                modelr, _ = await self._load_data(
+                    self.model,
+                    item,
+                    effective_virtual,
+                    self.data_model,
+                    self.is_session_model,
+                    self.tz,
+                    self.virtual_fields_parser,
+                )
+                results.append(modelr)
 
         return await self.collect_dump(results, resp_type=resp_type)
 
@@ -1097,7 +1111,7 @@ class OzonModelBase(OzonMBase):
         fields = fields or {}
 
         # 👉 Delegate if pipeline
-        if pipeline_items:
+        if pipeline_items or obfuscate_fields:
             return await self.aggregate_raw(
                 domain=domain,
                 sort=sort,
