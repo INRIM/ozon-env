@@ -33,13 +33,15 @@ At runtime, ozon-env:
 3. Dynamically imports and loads them  
 4. Executes business logic on top of them
 
+<pre>
 Schema (DB)
     ↓
 Runtime Model Compilation
     ↓
-Domain Model (Pydantic-based)
+Domain Model (Pydantic)
     ↓
 Worker / Web App / Agent Layer
+</pre>
 
 It integrates with the Service App￼ project.
 
