@@ -1187,7 +1187,9 @@ class OzonModelBase(OzonMBase):
 
         return await cursor.to_list(length=None)
 
-    @deprecated("since version 3.3.1; use 'find' instead. This method will be removed in version 3.4.0.")
+    @deprecated(
+        "since version 3.3.1; use 'find' instead. This method will be removed in version 3.4.0."
+    )
     async def aggregate(
         self,
         pipeline: list[dict],
