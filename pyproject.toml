@@ -8,6 +8,7 @@ license = { text = "MIT" }
 authors = [
     { name = "Alessio Gerace", email = "alessio.gerace@gmail.com" }
 ]
+
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Natural Language :: English",
@@ -17,7 +18,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: Implementation :: CPython"
 ]
 
@@ -41,21 +41,6 @@ dependencies = [
     "setuptools>=82.0.0; python_version >= '3.12'"
 ]
 
-[project.optional-dependencies]
-json_logic = ["json_logic_qubit"]
-
-dev = [
-    "pytest-asyncio>=0.23.4",
-    "pytest-mock",
-    "pytest-cov==4.1.0",
-    "flake9>=3.8.3",
-    "isort>=5.8.0",
-    "black>=22.10.0",
-    "types-toml",
-    "httpx",
-    "iso8601"
-]
-
 [project.urls]
 Homepage = "https://github.com/archetipo/ozon-env"
 
@@ -63,14 +48,30 @@ Homepage = "https://github.com/archetipo/ozon-env"
 requires = ["poetry-core>=1.8.0"]
 build-backend = "poetry.core.masonry.api"
 
-# --- Poetry specific (non PEP 621) ---
+# -------------------------
+# POETRY-SPECIFIC CONFIG
+# -------------------------
 
 [tool.poetry]
 packages = [{ include = "ozonenv" }]
 include = ["ozonenv/core/custom_templates/**/*"]
 exclude = ["tests/*"]
 
-# --- Tooling ---
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
+pytest-asyncio = ">=0.23.4"
+pytest-mock = "*"
+pytest-cov = "4.1.0"
+flake9 = ">=3.8.3"
+isort = ">=5.8.0"
+black = ">=22.10.0"
+types-toml = "*"
+httpx = "*"
+iso8601 = "*"
+
+# -------------------------
+# TOOLING
+# -------------------------
 
 [tool.flake8]
 max-complexity = 15
@@ -94,7 +95,7 @@ filterwarnings = [
     "error",
     "ignore::UserWarning",
     "ignore::DeprecationWarning",
-    "ignore:function ham\\(\\) is deprecated:DeprecationWarning",
+    "ignore:function ham\\(\\) is deprecated:DeprecationWarning"
 ]
 show-capture = "all"
 
