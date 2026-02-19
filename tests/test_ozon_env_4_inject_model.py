@@ -50,7 +50,7 @@ async def test_user_static_model_add_data():
     data = await get_user_data()
     env = OzonEnv()
     await env.init_env(
-        local_model={'user': User}, local_model_private=["user"]
+        g, local_model_private=["user"]
     )
     await env.orm.init_session("BA6BA930")
     user_model = env.get('user')
