@@ -389,7 +389,7 @@ class OzonEnvBase:
         self.db = await connect_to_mongo(self.db_settings)
 
     async def close_db(self):
-        await close_mongo_connection()
+        await close_mongo_connection(self.db)
 
     async def init_orm(
         self,

@@ -25,11 +25,12 @@ class DbSettings(BaseModel):
     mongo_replica: str = ""
 
 
-db = Mongo()
+
 
 
 async def connect_to_mongo(settings: DbSettings):
     logger.info("...")
+    db = Mongo()
     mongocfg = f"mongodb://{settings.mongo_user}:{settings.mongo_pass}@{settings.mongo_url}"
     logger.info(f" DB Url {settings.mongo_url} DB {settings.mongo_db}  ..")
     if settings.mongo_replica:
@@ -61,7 +62,7 @@ async def connect_to_mongo(settings: DbSettings):
     return db
 
 
-async def close_mongo_connection():
+async def close_mongo_connection(db: Mongo):
     logger.info("colse Db...")
     db.client.close()
     logger.info("closed！")

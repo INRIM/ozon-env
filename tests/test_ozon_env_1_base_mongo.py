@@ -1,3 +1,5 @@
+import asyncio
+
 from ozonenv.OzonEnv import OzonEnv
 from ozonenv.core.db.mongodb_utils import (
     connect_to_mongo,
@@ -49,10 +51,11 @@ async def test_init_env_db_exist():
     assert isinstance(session, AsyncIOMotorCollection)
     await env.close_env()
     assert db.client.is_primary
-    await close_mongo_connection()
+    await close_mongo_connection(db)
     with pytest.raises(Exception) as excinfo:
         assert db.client.is_primary
     assert str(excinfo.value) == 'Cannot use MongoClient after close'
+
 
 
 @pytestmark
@@ -102,3 +105,42 @@ async def test_make_app_session_error():
         redis_url="redis://localhost:100013")
     assert res.fail is True
     assert res.msg == "Token BA6B---- non abilitato"
+
+
+@pytestmark
+async def test_two_independent_connections_and_delayed_close():
+    init_env_var()
+    cfg1 = {
+        "app_code": os.getenv("APP_CODE"),
+        "mongo_user": os.getenv("MONGO_USER"),
+        "mongo_pass": os.getenv("MONGO_PASS"),
+        "mongo_url": os.getenv("MONGO_URL"),
+        "mongo_db": os.getenv("MONGO_DB"),
+        "mongo_replica": os.getenv("MONGO_REPLICA"),
+        "models_folder": os.getenv("MODELS_FOLDER"),
+    }
+    cfg2 = cfg1.copy()
+    cfg2["mongo_db"] = f"{cfg1['mongo_db']}_second"
+
+    env1 = OzonEnv(cfg1)
+    env2 = OzonEnv(cfg2)
+    await env1.init_orm()
+    await env2.init_orm()
+
+    pong1 = await env1.db.engine.command("ping")
+    pong2 = await env2.db.engine.command("ping")
+    assert pong1.get("ok") == 1.0
+    assert pong2.get("ok") == 1.0
+
+    await env1.close_db()
+
+    # db2 must remain usable after db1 close
+    pong2_after_close_db1 = await env2.db.engine.command("ping")
+    assert pong2_after_close_db1.get("ok") == 1.0
+
+    await asyncio.sleep(3)
+    await env2.close_db()
+
+    with pytest.raises(Exception) as excinfo:
+        assert env2.db.client.is_primary
+    assert "Cannot use MongoClient after close" in str(excinfo.value)
