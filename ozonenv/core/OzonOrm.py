@@ -9,7 +9,7 @@ import time as time_
 from contextvars import ContextVar
 from os.path import dirname, exists
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 import aiofiles
 from aiopathlib import AsyncPath
@@ -96,6 +96,54 @@ class OzonEnvBase:
         self._local_transaction_var = ContextVar(
             f"undo_{id(self)}", default=None
         )
+        self.data_value_mode = (
+            str(
+                self.config_system.get(
+                    "data_value_mode",
+                    os.getenv("DATA_VALUE_MODE", "runtime"),
+                )
+            )
+            .strip()
+            .lower()
+        )
+        if self.data_value_mode not in ["runtime", "background"]:
+            logger.warning(
+                "Invalid data_value_mode '%s': fallback to 'runtime'",
+                self.data_value_mode,
+            )
+            self.data_value_mode = "runtime"
+        runtime_only_models = self.config_system.get(
+            "data_value_runtime_only_models",
+            os.getenv(
+                "DATA_VALUE_RUNTIME_ONLY_MODELS",
+                "session,component,settings,user",
+            ),
+        )
+        if runtime_only_models is None:
+            runtime_only_models = []
+        elif isinstance(runtime_only_models, str):
+            runtime_only_models = [
+                m.strip().lower()
+                for m in runtime_only_models.split(",")
+                if m.strip()
+            ]
+        else:
+            runtime_only_models = [
+                str(m).strip().lower() for m in runtime_only_models
+            ]
+        self.data_value_runtime_only_models = set(runtime_only_models)
+        bg_hours = self.config_system.get(
+            "data_value_bg_default_hours",
+            os.getenv("DATA_VALUE_BG_DEFAULT_HOURS", "2"),
+        )
+        try:
+            self.data_value_bg_default_hours = int(bg_hours)
+        except (TypeError, ValueError):
+            self.data_value_bg_default_hours = 2
+            logger.warning(
+                "Invalid data_value_bg_default_hours '%s': fallback to 2",
+                bg_hours,
+            )
 
     def local_transaction_start(self):
         if not self._local_transaction_var.get():
@@ -238,6 +286,73 @@ class OzonEnvBase:
 
     def get(self, model_name) -> OzonModelBase:
         return self.models.get(model_name)
+
+    def is_data_value_runtime_only_model(self, model_name: str) -> bool:
+        return model_name.lower() in self.data_value_runtime_only_models
+
+    def is_data_value_runtime_enabled(self, model_name: str) -> bool:
+        if self.is_data_value_runtime_only_model(model_name):
+            return True
+        return self.data_value_mode == "runtime"
+
+    async def update_data_value_bg(
+        self,
+        window: Optional[str] = "update_dt",
+        hours: int = None,
+    ) -> dict:
+        if hours is None:
+            hours = self.data_value_bg_default_hours
+        if not self.models:
+            return {}
+        tasks = {}
+        for model_name, model in self.models.items():
+            if self.is_data_value_runtime_only_model(model_name):
+                continue
+            if not hasattr(model, "update_data_value_bg"):
+                continue
+            tasks[model_name] = asyncio.create_task(
+                model.update_data_value_bg(window=window, hours=hours)
+            )
+        results = {}
+        for model_name, task in tasks.items():
+            try:
+                results[model_name] = await task
+            except Exception as exc:
+                logger.exception(
+                    "update_data_value_bg failed for model %s",
+                    model_name,
+                )
+                results[model_name] = {
+                    "model": model_name,
+                    "updated": 0,
+                    "scanned": 0,
+                    "skipped": False,
+                    "error": str(exc),
+                }
+        return results
+
+    async def updata_data_value_bg(
+        self,
+        window: Optional[str] = "update_dt",
+        hours: int = None,
+    ) -> dict:
+        return await self.update_data_value_bg(window=window, hours=hours)
+
+    def start_update_data_value_bg(
+        self,
+        window: Optional[str] = "update_dt",
+        hours: int = None,
+    ) -> asyncio.Task:
+        return asyncio.create_task(
+            self.update_data_value_bg(window=window, hours=hours)
+        )
+
+    def start_updata_data_value_bg(
+        self,
+        window: Optional[str] = "update_dt",
+        hours: int = None,
+    ) -> asyncio.Task:
+        return self.start_update_data_value_bg(window=window, hours=hours)
 
     def get_collection(self, collection) -> Collection[_DocumentType]:
         return self.db.engine.get_collection(collection)

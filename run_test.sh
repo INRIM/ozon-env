@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 cleanup() {
-  docker compose down
+  docker compose down --remove-orphans
 }
 trap cleanup EXIT
 
@@ -25,6 +25,19 @@ fi
 
 echo "install project dependencies"
 poetry install --with dev --sync
+
+echo "set test env"
+export APP_CODE="${APP_CODE:-test}"
+export STACK="${STACK:-test}"
+export MONGO_DB="${MONGO_DB:-servicetest}"
+export MONGO_USER="${MONGO_USER:-servicetest}"
+export MONGO_PASS="${MONGO_PASS:-servicetest}"
+export MONGO_URL="${MONGO_URL:-localhost:10002}"
+export MONGO_REPLICA="${MONGO_REPLICA:-}"
+export MODELS_FOLDER="${MODELS_FOLDER:-tests/models}"
+
+echo "reset compose stack"
+docker compose down -v --remove-orphans || true
 
 echo "make compose"
 docker compose up -d --force-recreate

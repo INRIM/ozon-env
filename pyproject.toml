@@ -1,6 +1,6 @@
 [project]
 name = "ozon-env"
-version = "3.3.1"
+version = "3.3.3"
 description = "Ozon Env API"
 readme = "README.md"
 requires-python = ">=3.10,<4.0"

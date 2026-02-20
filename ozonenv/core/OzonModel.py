@@ -111,6 +111,14 @@ class OzonMBase:
         self.service: ModelService
         self._transaction = False
 
+    def is_data_value_runtime_enabled(self) -> bool:
+        env = getattr(self, "env", None)
+        if not env:
+            return True
+        if not hasattr(env, "is_data_value_runtime_enabled"):
+            return True
+        return env.is_data_value_runtime_enabled(self.name)
+
     def init_schema_properties(self):
         if self.schema.get("properties", {}):
             for k, v in self.schema.get("properties", {}).items():
@@ -275,6 +283,13 @@ class OzonMBase:
           - lo converte in UTC e aggiorna il dizionario
         Ritorna il dizionario modificato
         """
+        if not self.is_data_value_runtime_enabled():
+            data = copy.deepcopy(dati)
+            if "data_value" not in data:
+                data["data_value"] = pdata_value.copy() if pdata_value else {}
+            return data
+        if not self.service:
+            return dati
         return await self.service.compute_data_value(dati, pdata_value)
 
     async def _load_data(
@@ -438,6 +453,105 @@ class OzonModelBase(OzonMBase):
         self.init_status()
         component_coll = self.db.engine.get_collection(self.data_model)
         await component_coll.create_index([(field_name, 1)], unique=True)
+
+    @classmethod
+    def _resolve_data_value_bg_window_field(cls, window: Optional[str]):
+        if window is None:
+            return None
+        key = str(window).strip().lower()
+        mapper = {
+            "create_dt": "create_datetime",
+            "create_datetime": "create_datetime",
+            "update_dt": "update_datetime",
+            "update_datetime": "update_datetime",
+        }
+        if key not in mapper:
+            raise ValueError(
+                "window must be one of: create_dt, create_datetime, "
+                "update_dt, update_datetime or None"
+            )
+        return mapper[key]
+
+    async def update_data_value_bg(
+        self,
+        window: Optional[str] = "update_dt",
+        hours: int = 2,
+    ) -> dict:
+        self.init_status()
+        model_name = self.name.lower()
+        env = getattr(self, "env", None)
+        if (
+            env
+            and hasattr(env, "is_data_value_runtime_only_model")
+            and env.is_data_value_runtime_only_model(model_name)
+        ):
+            return {
+                "model": self.name,
+                "scanned": 0,
+                "updated": 0,
+                "skipped": True,
+                "reason": "runtime_only_model",
+            }
+        if self.virtual and not self.data_model:
+            return {
+                "model": self.name,
+                "scanned": 0,
+                "updated": 0,
+                "skipped": True,
+                "reason": "virtual_without_data_model",
+            }
+        if not self.service:
+            return {
+                "model": self.name,
+                "scanned": 0,
+                "updated": 0,
+                "skipped": True,
+                "reason": "service_not_initialized",
+            }
+
+        domain = {}
+        window_field = self._resolve_data_value_bg_window_field(window)
+        if window_field:
+            cutoff = self.model.utc_now() - timedelta(hours=hours)
+            domain[window_field] = {"$gte": cutoff}
+
+        coll = self.db.engine.get_collection(self.data_model)
+        cursor = coll.find(domain)
+        updated = 0
+        scanned = 0
+        async for row in cursor:
+            scanned += 1
+            source_data = copy.deepcopy(row)
+            source_data.pop("_id", None)
+            if isinstance(source_data.get("id"), ObjectId):
+                source_data["id"] = str(source_data["id"])
+            source_data = self.model.normalize_datetime_fields(
+                self.tz, source_data
+            )
+            new_data = await self.service.compute_data_value(
+                copy.deepcopy(source_data),
+                pdata_value=source_data.get("data_value", {}),
+            )
+            new_data_value = new_data.get("data_value", {})
+            if new_data_value != row.get("data_value", {}):
+                await coll.update_one(
+                    {"_id": row["_id"]},
+                    {"$set": {"data_value": new_data_value}},
+                )
+                updated += 1
+        return {
+            "model": self.name,
+            "scanned": scanned,
+            "updated": updated,
+            "skipped": False,
+        }
+
+    async def updata_data_value_bg(
+        self,
+        window: Optional[str] = "update_dt",
+        hours: int = 2,
+    ) -> dict:
+        return await self.update_data_value_bg(window=window, hours=hours)
 
     async def count_by_filter(self, domain: dict) -> int:
         self.init_status()
