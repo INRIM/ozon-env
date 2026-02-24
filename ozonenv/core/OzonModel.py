@@ -1424,6 +1424,7 @@ class OzonModelBase(OzonMBase):
             project["title"] = 1
 
         pipeline_items = [
+            {"$match": query},
             {"$project": project},
             {
                 "$group": {
