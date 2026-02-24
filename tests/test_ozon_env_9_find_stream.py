@@ -67,6 +67,21 @@ async def test_stream_and_find_large_dataset():
     await env.close_env()
 
 @pytest.mark.asyncio
+async def test_search_distinct():
+    env = OzonEnv()
+    await env.init_env()
+    env.params = {"current_session_token": "BA6BA930"}
+    await env.session_app()
+
+    model = env.get("test_form_1")
+
+    records = await model.search_all_distinct("firstName",{})
+
+    assert isinstance(records, list)
+    assert len(records) >= 200
+
+
+@pytest.mark.asyncio
 async def test_stream_memory_stable():
 
     env = OzonEnv()
