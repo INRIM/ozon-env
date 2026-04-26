@@ -1,10 +1,16 @@
 import locale
 import traceback
 
-from ozonenv.OzonEnv import OzonWorkerEnv, OzonEnv, BasicReturn
+from ozonenv.OzonEnv import (
+    OzonWorkerEnv,
+    OzonWorkerEnvRest,
+    OzonEnv,
+    BasicReturn,
+)
+from ozonenv.core.OzonClient import OzonDataApiClient
 from ozonenv.core.BaseModels import CoreModel
 from ozonenv.core.ModelMaker import MainModel
-from ozonenv.core.OzonOrm import OzonModel
+from ozonenv.core.OzonOrm import OzonModel, OzonModelRest
 from test_common import *
 from dateutil.parser import parse
 
@@ -311,6 +317,37 @@ class MockWorker2(MockWorker1):
         return documento
 
 
+class MockWorker2Api(OzonWorkerEnvRest):
+    async def session_app(self) -> BasicReturn:
+        sres = await super(MockWorker2Api, self).session_app()
+        if sres.fail:
+            return self.exception_response(err=sres.msg)
+
+        user_model = self.get(self.params.get("model"))
+        users = await user_model.find({"uid": "api-user"})
+        record = await user_model.new(
+            {
+                "rec_name": "api-user.new",
+                "uid": "api-user.new",
+                "password": "secret",
+            }
+        )
+        saved = await user_model.insert(record)
+        return self.success_response(
+            msg="Done",
+            data={
+                self.topic_name: {
+                    "done": True,
+                    "error": False,
+                    "model": user_model.name,
+                    "count": len(users),
+                    "saved": saved.rec_name,
+                },
+                user_model.name: saved.get_dict_json(),
+            },
+        )
+
+
 @pytestmark
 async def test_base_worker_env():
     worker = OzonWorkerEnv()
@@ -354,6 +391,81 @@ async def test_init_worker_ok():
     assert res.data['test_topic']['next_page'] == "/open/doc/DOC99999"
     assert res.data['test_topic']['model'] == "documento_beni_servizi"
     assert res.data['documento_beni_servizi']['stato'] == "caricato"
+    await worker.close_env()
+
+
+@pytestmark
+async def test_worker2_api_with_rest_backend(monkeypatch, tmp_path):
+    monkeypatch.setenv("OZON_LOCALEDIR", get_i18n_localedir_tr())
+    monkeypatch.setenv("OZON_APPLANG", "it")
+    calls = []
+
+    async def fake_post_operation(self, operation_name, payload=None):
+        calls.append((operation_name, payload))
+        if operation_name == "find":
+            return {
+                "data": [
+                    {
+                        "rec_name": "api-user",
+                        "uid": "api-user",
+                        "password": "secret",
+                    }
+                ]
+            }
+        if operation_name == "insert":
+            return {
+                "data": {
+                    "rec_name": "api-user.new",
+                    "uid": "api-user.new",
+                    "password": "secret",
+                }
+            }
+        return {"data": {}}
+
+    monkeypatch.setattr(
+        OzonDataApiClient,
+        "post_operation",
+        fake_post_operation,
+    )
+
+    worker = MockWorker2Api(
+        cfg={
+            "app_code": "test-rest-worker",
+            "models_folder": str(tmp_path / "models"),
+            "rest_token": "cfg-token",
+        }
+    )
+    res = await worker.make_app_session(
+        params={
+            "topic_name": "test_topic",
+            "document_type": "standard",
+            "model": "user",
+            "session_is_api": True,
+        },
+        local_model={"user": User},
+        settings={
+            "rec_name": "test-rest-worker",
+            "upload_folder": "/uploads",
+            "tz": "Europe/Rome",
+        },
+    )
+
+    assert res.fail is False
+    assert res.data["test_topic"]["done"] is True
+    assert res.data["test_topic"]["error"] is False
+    assert res.data["test_topic"]["count"] == 1
+    assert res.data["test_topic"]["saved"] == "api-user.new"
+    assert res.data["test_topic"]["model"] == "user"
+    assert res.data["user"]["uid"] == "api-user.new"
+    assert [name for name, _payload in calls] == ["find", "insert"]
+    assert calls[0][1]["model"] == "user"
+    assert calls[1][1]["record"]["rec_name"] == "api-user.new"
+    assert worker.orm.__class__.__name__ == "OzonOrmRest"
+    assert worker.get("user").__class__ is OzonModelRest
+    assert (
+        worker.orm.rest_client.get_headers()["Authorization"]
+        == "Bearer cfg-token"
+    )
     await worker.close_env()
 
 
@@ -407,4 +519,3 @@ async def test_worker2_with_nested():
     assert res.data['test_topic']['model'] == "documento_beni_servizi"
     assert res.data['documento_beni_servizi']['stato'] == "caricato"
     await worker.close_env()
-

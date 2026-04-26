@@ -11,7 +11,14 @@
 
 **ozon-env is a runtime self-compiling domain engine.**
 
-It dynamically compiles schema definitions stored in the database into executable domain models at runtime — without requiring application restarts.
+It dynamically compiles schema definitions into executable domain models at
+runtime, without requiring application restarts.
+
+It can run in two modes:
+
+- `db`: schema and data are loaded from MongoDB
+- `rest`: schema is loaded from `components` or from generated models in
+  `MODELS_FOLDER`, while ORM operations are mapped to HTTP `POST` calls
 
 Designed to power:
 
@@ -24,7 +31,8 @@ Designed to power:
 
 ## Core Concept
 
-Schema definitions are stored in the database.
+Schema definitions can come from the database or from a local list of
+FormIO-like `components`.
 
 At runtime, ozon-env:
 
@@ -34,7 +42,7 @@ At runtime, ozon-env:
 4. Executes business logic on top of them
 
 <pre>
-Schema (DB)
+Schema (DB or components)
     ↓
 Runtime Model Compilation
     ↓
@@ -65,6 +73,7 @@ No service restart is required.
 - Isolated execution scope
 - Session-based lifecycle
 - Supports concurrent environments
+- Selectable backend interface: `db` or `rest`
 
 ### Business Logic Workers
 - Designed for distributed execution
@@ -116,6 +125,130 @@ cd ozon-env
 pip install poetry
 poetry install
 ```
+
+## Backend Interface
+
+### Default DB mode
+
+`db` is the default backend.
+
+```bash
+export OZON_BACKEND_INTERFACE=db
+export MONGO_USER=...
+export MONGO_PASS=...
+export MONGO_URL=...
+export MONGO_DB=...
+export MODELS_FOLDER=/models
+```
+
+In this mode:
+
+- schemas are discovered from MongoDB
+- models are generated and cached in `MODELS_FOLDER`
+- session validation is based on the `session` collection
+
+### REST mode
+
+```bash
+export OZON_BACKEND_INTERFACE=rest
+export OZON_REST_BASE_URL=http://base_usr
+export OZON_REST_API_PREFIX=/base_usr/v2
+export OZON_REST_TOKEN=...
+export MODELS_FOLDER=/models
+```
+
+In this mode:
+
+- `new()` still creates local Python objects
+- ORM operations such as `find`, `load`, `insert`, `update`, `upsert`,
+  `remove`, `count`, `distinct` are mapped to `POST` operations
+- default headers use `Authorization: Bearer <token>`
+- `settings`, `session` and `component` are handled locally by the env/orm
+- session is optional: if no token or local session is provided, the env can
+  still run and use the configured `OZON_REST_TOKEN`
+
+Expected REST path pattern:
+
+```text
+POST {OZON_REST_BASE_URL}/base_usr/v2/{operation_name}
+```
+
+REST bootstrap endpoints used by `OzonOrmRest.init_db_models()`:
+
+```text
+GET {OZON_REST_BASE_URL}/base_usr/v2/collections_names
+GET {OZON_REST_BASE_URL}/base_usr/v2/init_settings/{app_code}
+```
+
+## REST Initialization Example
+
+```python
+from ozonenv.OzonEnv import OzonEnvRest
+
+env = OzonEnvRest(
+    {
+        "app_code": "demo",
+        "rest_base_url": "http://base_usr",
+        "rest_api_prefix": "/base_usr/v2",
+        "rest_token": "token",
+        "models_folder": "/tmp/models",
+    }
+)
+
+await env.init_env(
+    components=[...],   # FormIO-like component schemas
+    settings={
+        "rec_name": "demo",
+        "upload_folder": "/uploads",
+        "tz": "Europe/Rome",
+    },
+    sessions=[...],     # optional local session records
+)
+```
+
+If a generated model already exists in `MODELS_FOLDER`, ozon-env imports it.
+If it does not exist, ozon-env generates it from the provided component schema.
+
+If you pass a custom runtime model class to the env, it must inherit from
+`OzonModelBase` and expose a coherent `interface_type`:
+
+```python
+class MyRestModel(OzonModelRest):
+    interface_type = "rest"
+```
+
+`OzonEnvBase` validates `cls_model.interface_type` against
+`backend_interface` during init. It does not replace `cls_model`.
+
+## Worker Usage in REST Mode
+
+`OzonWorkerEnvRest.make_app_session()` uses the same worker API on REST:
+
+```python
+from ozonenv.OzonEnv import OzonWorkerEnvRest
+
+worker = OzonWorkerEnvRest(
+    {
+        "app_code": "demo",
+        "rest_base_url": "http://base_usr",
+        "rest_api_prefix": "/base_usr/v2",
+        "rest_token": "token",
+    }
+)
+
+await worker.make_app_session(
+    params={"topic_name": "job", "model": "user"},
+    local_model={"user": UserModel},
+    settings={"rec_name": "demo", "upload_folder": "/uploads"},
+)
+```
+
+For REST workers:
+
+- a runtime session is optional
+- a configured `rest_token` can be enough
+- the worker can use the same ORM API used in DB mode
+- the actual persistence/query layer is delegated to the REST backend
 
 ### Running Tests
 

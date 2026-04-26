@@ -3,7 +3,7 @@ import os
 
 from ozonenv.core.BaseModels import BasicReturn
 from ozonenv.core.OzonClient import OzonClient
-from ozonenv.core.OzonOrm import OzonEnvBase, OzonModel
+from ozonenv.core.OzonOrm import OzonEnvBase, OzonModel, OzonModelRest
 
 logger = logging.getLogger(__file__)
 
@@ -14,10 +14,16 @@ class OzonEnv(OzonEnvBase):
             cfg=cfg, upload_folder=upload_folder, cls_model=cls_model)
 
 
-class OzonWorkerEnv(OzonEnv):
-    def __init__(self, cfg={}, upload_folder="", cls_model=OzonModel):
-        super(OzonWorkerEnv, self).__init__(
+class OzonEnvRest(OzonEnvBase):
+    def __init__(self, cfg={}, upload_folder="", cls_model=OzonModelRest):
+        cfg = (cfg or {}).copy()
+        cfg.setdefault("backend_interface", "rest")
+        super().__init__(
             cfg=cfg, upload_folder=upload_folder, cls_model=cls_model)
+
+
+class OzonWorkerEnvMixin:
+    def _init_worker_state(self):
         self.doc_type = ""
         self.action_next_page = ""
         self.topic_name = ""
@@ -107,18 +113,24 @@ class OzonWorkerEnv(OzonEnv):
             cache_idx="ozon_env",
             redis_url="redis://redis_cache",
             db=None,
-            local_model={}
+            local_model={},
+            local_model_private=None,
+            components=None,
+            sessions=None,
+            settings=None,
     ) -> BasicReturn:
         self.topic_name = params.get('topic_name', "")
-        res = await super(OzonWorkerEnv, self).make_app_session(
+        res = await super().make_app_session(
             params, use_cache=use_cache, cache_idx=cache_idx,
-            redis_url=redis_url, db=db, local_model=local_model)
+            redis_url=redis_url, db=db, local_model=local_model,
+            local_model_private=local_model_private,
+            components=components, sessions=sessions, settings=settings)
         if res.fail:
             return self.exception_response(res.msg)
         return res
 
     async def session_app(self) -> BasicReturn:
-        res = await super(OzonWorkerEnv, self).session_app()
+        res = await super().session_app()
         if res.fail:
             return self.exception_response(res.msg)
         self.doc_type = self.params.get('document_type', "")
@@ -129,3 +141,20 @@ class OzonWorkerEnv(OzonEnv):
             url=os.getenv("OZON_CLIENT", "http://client:8526")
         )
         return self.default_response(msg="Done")
+
+
+class OzonWorkerEnv(OzonWorkerEnvMixin, OzonEnv):
+    def __init__(self, cfg={}, upload_folder="", cls_model=OzonModel):
+        super().__init__(
+            cfg=cfg, upload_folder=upload_folder, cls_model=cls_model)
+        self._init_worker_state()
+
+
+class OzonWorkerEnvRest(OzonWorkerEnvMixin, OzonEnvRest):
+    def __init__(
+        self, cfg={}, upload_folder="", cls_model=OzonModelRest
+    ):
+        super().__init__(
+            cfg=cfg, upload_folder=upload_folder, cls_model=cls_model
+        )
+        self._init_worker_state()

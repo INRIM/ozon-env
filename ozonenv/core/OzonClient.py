@@ -15,6 +15,10 @@ def json_serial(obj):
         return obj.isoformat()
 
 
+def make_json_compatible(data):
+    return json.loads(json.dumps(data, default=json_serial))
+
+
 class OzonClient:
     @classmethod
     def create(cls, apikey, is_api=False, url="http://client:8526"):
@@ -57,6 +61,75 @@ class OzonClient:
                 return result
             else:
                 return {"status": "error", "message": res}
+
+
+class OzonDataApiClient:
+    @classmethod
+    def create(
+        cls,
+        base_url="",
+        api_prefix="/base_usr/v2",
+        token="",
+        timeout=90,
+    ):
+        self = OzonDataApiClient()
+        self.base_url = str(base_url or "").rstrip("/")
+        self.api_prefix = "/" + str(api_prefix or "base_usr/v2").strip("/")
+        self.token = token or ""
+        self.timeout = timeout
+        return self
+
+    def set_token(self, token: str):
+        self.token = token or ""
+
+    def get_headers(self):
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+        }
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        return headers
+
+    def operation_url(self, operation_name: str) -> str:
+        return f"{self.base_url}{self.api_prefix}/{operation_name}"
+
+    def resource_url(self, resource_path: str) -> str:
+        return f"{self.base_url}{self.api_prefix}/{resource_path.lstrip('/')}"
+
+    async def post_operation(self, operation_name: str, payload: dict = None):
+        if payload is None:
+            payload = {}
+        url = self.operation_url(operation_name)
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                url,
+                json=make_json_compatible(payload),
+                headers=self.get_headers(),
+            )
+        response.raise_for_status()
+        if not response.content:
+            return {}
+        return response.json()
+
+    async def get_resource(
+        self,
+        resource_path: str,
+        params: dict = None,
+    ):
+        if params is None:
+            params = {}
+        url = self.resource_url(resource_path)
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                url,
+                params=make_json_compatible(params),
+                headers=self.get_headers(),
+            )
+        response.raise_for_status()
+        if not response.content:
+            return {}
+        return response.json()
 
     async def delete_attachments(self, form_data, model, attachment_key):
         rec_name = form_data.get("rec_name")

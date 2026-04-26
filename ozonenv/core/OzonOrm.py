@@ -9,7 +9,7 @@ import time as time_
 from contextvars import ContextVar
 from os.path import dirname, exists
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, AsyncIterator, Optional, Union
 
 import aiofiles
 from aiopathlib import AsyncPath
@@ -26,7 +26,11 @@ from ozonenv.core.BaseModels import (
     BasicModel,
 )
 from ozonenv.core.ModelService import ModelService
-from ozonenv.core.OzonClient import OzonClient
+from ozonenv.core.OzonClient import (
+    OzonClient,
+    OzonDataApiClient,
+    make_json_compatible,
+)
 from ozonenv.core.OzonModel import OzonModelBase, BasicReturn
 from ozonenv.core.cache.cache_utils import stop_cache  # , init_cache
 from ozonenv.core.db.mongodb_utils import (
@@ -40,6 +44,7 @@ from ozonenv.core.db.mongodb_utils import (
 from ozonenv.core.exceptions import SessionException
 from ozonenv.core.i18n import _
 from ozonenv.core.i18n import update_translation
+from ozonenv.core.utils import traverse_and_convertd_datetime
 
 logger = logging.getLogger(__file__)
 
@@ -60,8 +65,8 @@ class OzonEnvBase:
         if cfg is None:
             cfg = {}
         self.orm: OzonOrm
-        self.db: Mongo
-        self.ozon_client: OzonClient
+        self.db: Mongo = None
+        self.ozon_client: OzonClient = None
         if not cfg:
             self.config_system = {
                 "app_code": os.getenv("APP_CODE"),
@@ -74,7 +79,25 @@ class OzonEnvBase:
             }
         else:
             self.config_system = cfg.copy()
-        self.db_settings = DbSettings(**self.config_system)
+        self.backend_interface = (
+            str(
+                self.config_system.get(
+                    "backend_interface",
+                    os.getenv("OZON_BACKEND_INTERFACE", "db"),
+                )
+            )
+            .strip()
+            .lower()
+        )
+        if self.backend_interface not in ["db", "rest"]:
+            logger.warning(
+                "Invalid backend_interface '%s': fallback to 'db'",
+                self.backend_interface,
+            )
+            self.backend_interface = "db"
+        self.db_settings = None
+        if self.backend_interface == "db":
+            self.db_settings = DbSettings(**self.config_system)
         self.model = ""
         self.models: Dict[str, cls_model] = {}
         self.params = {}
@@ -92,6 +115,7 @@ class OzonEnvBase:
         self.is_db_local = True
         self.app_code = self.config_system.get("app_code")
         self.cls_model = cls_model
+        self.validate_backend_model_interface()
         self.default_tz = (os.getenv("TZ", "Europe/Rome"),)
         self._local_transaction_var = ContextVar(
             f"undo_{id(self)}", default=None
@@ -143,6 +167,27 @@ class OzonEnvBase:
             logger.warning(
                 "Invalid data_value_bg_default_hours '%s': fallback to 2",
                 bg_hours,
+            )
+
+    def get_backend_interface(self) -> str:
+        return self.backend_interface
+
+    def get_orm_class(self):
+        if self.get_backend_interface() == "rest":
+            return OzonOrmRest
+        return OzonOrm
+
+    def validate_backend_model_interface(self):
+        if not isinstance(self.cls_model, type):
+            raise TypeError("cls_model must be a class")
+        if not issubclass(self.cls_model, OzonModelBase):
+            raise TypeError("cls_model must inherit from OzonModelBase")
+        interface_type = getattr(self.cls_model, "interface_type", "db")
+        if interface_type != self.get_backend_interface():
+            raise ValueError(
+                "cls_model interface_type '%s' is not coherent with "
+                "backend_interface '%s'"
+                % (interface_type, self.get_backend_interface())
             )
 
     def local_transaction_start(self):
@@ -396,6 +441,9 @@ class OzonEnvBase:
         db=None,
         local_model: dict = None,
         local_model_private: list = None,
+        components: list[dict] = None,
+        sessions: list[dict] = None,
+        settings: dict = None,
     ):
         if local_model is None:
             local_model = {}
@@ -404,10 +452,19 @@ class OzonEnvBase:
         if db:
             self.db = db
             self.is_db_local = False
-        else:
+        elif self.get_backend_interface() == "db":
             await self.connect_db()
+        else:
+            self.is_db_local = False
         await self.set_lang()
-        self.orm = OzonOrm(self, cls_model=self.cls_model)
+        orm_cls = self.get_orm_class()
+        self.orm = orm_cls(self, cls_model=self.cls_model)
+        if isinstance(self.orm, OzonOrmRest):
+            self.orm.load_local_definitions(
+                components=components,
+                sessions=sessions,
+                settings=settings,
+            )
         if local_model:
             for k, v in local_model.items():
                 self.orm.orm_models.append(k)
@@ -420,6 +477,9 @@ class OzonEnvBase:
         db: Mongo = None,
         local_model: dict = None,
         local_model_private: list = None,
+        components: list[dict] = None,
+        sessions: list[dict] = None,
+        settings: dict = None,
     ):
         if local_model is None:
             local_model = {}
@@ -429,6 +489,9 @@ class OzonEnvBase:
             db=db,
             local_model=local_model,
             local_model_private=local_model_private,
+            components=components,
+            sessions=sessions,
+            settings=settings,
         )
         await self.orm.init_models()
 
@@ -446,13 +509,24 @@ class OzonEnvBase:
         redis_url="redis://redis_cache",
         db=None,
         local_model={},
+        local_model_private: list = None,
+        components: list[dict] = None,
+        sessions: list[dict] = None,
+        settings: dict = None,
     ) -> BasicReturn:
         try:
             self.params = copy.deepcopy(params)
             self.use_cache = use_cache
             self.cache_index = cache_idx
             self.redis_url = redis_url
-            await self.init_env(db=db, local_model=local_model)
+            await self.init_env(
+                db=db,
+                local_model=local_model,
+                local_model_private=local_model_private,
+                components=components,
+                sessions=sessions,
+                settings=settings,
+            )
             res = await self.session_app()
             await self.close_env()
             return res
@@ -467,6 +541,11 @@ class OzonEnvBase:
         if not self.upload_folder:
             self.upload_folder = self.orm.app_settings.upload_folder
         self.user_session = self.orm.user_session
+        if self.get_backend_interface() == "rest":
+            if not self.user_session and not (
+                self.session_token or self.params.get("current_session")
+            ):
+                return BasicReturn(fail=False, msg="Done", data={})
         if not self.user_session:
             return self.fail_response(
                 _("Token %s not allowed") % self.session_token
@@ -979,6 +1058,755 @@ class OzonOrm:
             await model.set_lang()
 
 
+def _read_record_value(record: dict, key: str):
+    if "." not in key:
+        return record.get(key)
+    value: Any = record
+    for part in key.split("."):
+        if isinstance(value, dict):
+            value = value.get(part)
+        else:
+            return None
+    return value
+
+
+def _match_local_condition(value: Any, expected: Any) -> bool:
+    if isinstance(expected, dict):
+        if "$nin" in expected:
+            return value not in expected["$nin"]
+        if "$gt" in expected:
+            return value is not None and value > expected["$gt"]
+        if "$gte" in expected:
+            return value is not None and value >= expected["$gte"]
+    return value == expected
+
+
+def _match_local_domain(record: dict, domain: dict) -> bool:
+    if not domain:
+        return True
+    if "$and" in domain:
+        return all(
+            _match_local_domain(record, item) for item in domain["$and"]
+        )
+    for key, expected in domain.items():
+        if key == "$and":
+            continue
+        if not _match_local_condition(
+            _read_record_value(record, key), expected
+        ):
+            return False
+    return True
+
+
+class OzonOrmRest(OzonOrm):
+    def __init__(self, env: OzonEnvBase, cls_model=OzonModelBase):
+        super().__init__(env, cls_model=cls_model)
+        self.local_only_models = {"component", "session", "settings"}
+        self.local_store = {
+            "component": [],
+            "session": [],
+            "settings": [],
+        }
+        self.rest_client = OzonDataApiClient.create(
+            base_url=self.config_system.get(
+                "rest_base_url",
+                os.getenv("OZON_REST_BASE_URL", ""),
+            ),
+            api_prefix=self.config_system.get(
+                "rest_api_prefix",
+                os.getenv("OZON_REST_API_PREFIX", "/base_usr/v2"),
+            ),
+            token=self.config_system.get(
+                "rest_token",
+                os.getenv("OZON_REST_TOKEN", ""),
+            ),
+        )
+
+    def is_local_model(self, model_name: str) -> bool:
+        return str(model_name).strip().lower() in self.local_only_models
+
+    def get_local_store(self, model_name: str) -> list[dict]:
+        name = str(model_name).strip().lower()
+        if name not in self.local_store:
+            self.local_store[name] = []
+        return self.local_store[name]
+
+    def load_local_definitions(
+        self,
+        components: list[dict] = None,
+        sessions: list[dict] = None,
+        settings: dict = None,
+    ):
+        if components is None:
+            components = self.config_system.get("components", [])
+        if sessions is None:
+            sessions = self.config_system.get("sessions", [])
+        if settings is None:
+            settings = self.config_system.get("settings")
+        self.local_store["component"] = [
+            copy.deepcopy(item) for item in (components or [])
+        ]
+        self.local_store["session"] = [
+            copy.deepcopy(item) for item in (sessions or [])
+        ]
+        if settings:
+            self.local_store["settings"] = [copy.deepcopy(settings)]
+        else:
+            self.local_store["settings"] = [
+                {
+                    "rec_name": self.app_code or "",
+                    "upload_folder": "/uploads",
+                    "tz": "Europe/Rome",
+                }
+            ]
+
+    @classmethod
+    def _extract_api_data(cls, response, default=None):
+        if response is None:
+            return default
+        if isinstance(response, dict):
+            for key in ["data", "items", "result", "value"]:
+                if key in response:
+                    return response[key]
+        return response
+
+    async def init_db_models(self):
+        self.db_models = await self.get_collections_names()
+        self.app_settings = await self.init_settings(self.app_code)
+        self.tz = self.app_settings.tz
+
+    async def get_collections_names(self, query={}):
+        collection_names = []
+        try:
+            response = await self.rest_client.get_resource("collections_names")
+            remote_names = self._extract_api_data(response, default=[])
+            if isinstance(remote_names, list):
+                collection_names.extend(
+                    [
+                        str(name).strip()
+                        for name in remote_names
+                        if str(name).strip()
+                    ]
+                )
+        except Exception as exc:
+            logger.warning("REST collections_names bootstrap failed: %s", exc)
+        for item in self.get_local_store("component"):
+            model_name = str(item.get("rec_name", "")).strip()
+            if model_name and model_name not in collection_names:
+                collection_names.append(model_name)
+        return collection_names
+
+    async def init_settings(self, app_code):
+        query = {"rec_name": app_code}
+        local_settings = None
+        try:
+            response = await self.rest_client.get_resource(
+                f"init_settings/{app_code}"
+            )
+            remote_settings = self._extract_api_data(response, default=None)
+            if isinstance(remote_settings, dict) and remote_settings:
+                local_settings = copy.deepcopy(remote_settings)
+                self.local_store["settings"] = [copy.deepcopy(remote_settings)]
+        except Exception as exc:
+            logger.warning("REST init_settings bootstrap failed: %s", exc)
+        for item in self.get_local_store("settings"):
+            if _match_local_domain(item, query):
+                local_settings = copy.deepcopy(item)
+                break
+        if local_settings is None:
+            local_settings = {
+                "rec_name": app_code or "",
+                "upload_folder": "/uploads",
+                "tz": "Europe/Rome",
+            }
+        local_settings = Settings.normalize_datetime_fields(
+            self.tz, local_settings
+        )
+        return Settings(
+            **local_settings,
+            exclude_none=True,
+            exclude_unset=True,
+            check_fields=False,
+        )
+
+    async def add_static_model(
+        self, model_name: str, model_class: BasicModel, private: bool = False
+    ) -> OzonModelBase:
+        _model_name = model_name.replace(" ", "").strip().lower()
+        self.orm_models.append(_model_name)
+        self.orm_static_models_map[_model_name] = model_class
+        self.env.models[_model_name] = self.cls_model(
+            _model_name,
+            self,
+            static=model_class,
+        )
+        await self.env.models[_model_name].init_model()
+        if private:
+            self.add_private_model(_model_name)
+        return self.env.models[_model_name]
+
+    async def init_model_and_write_code_from_schema(self, schema: dict):
+        model_name = schema.get("rec_name", "").strip()
+        if not model_name:
+            return
+        mod = self.cls_model(
+            model_name,
+            self,
+            data_model=schema.get("data_model", ""),
+            virtual=False,
+            schema=schema,
+            session_model=model_name == "session",
+        )
+        await mod.init_model()
+        await self.make_local_model(mod, BasicModel.utc_now().isoformat())
+
+    async def init_models(self):
+        await self.init_db_models()
+        await AsyncPath(self.models_path).mkdir(parents=True, exist_ok=True)
+        await AsyncPath(f"{self.models_path}/__init__.py").touch(exist_ok=True)
+
+        for main_model in self.orm_models:
+            if main_model not in self.env.models:
+                await self.make_model(main_model)
+
+        for module_path in sorted(Path(self.models_path).glob("*.py")):
+            model_name = module_path.stem
+            if model_name == "__init__":
+                continue
+            if model_name not in self.orm_static_models_map:
+                await self.import_module_model(model_name)
+            if model_name not in self.env.models:
+                await self.make_model(model_name)
+            if model_name not in self.dependencies:
+                self.dependencies[model_name] = []
+            model_class = self.orm_static_models_map.get(model_name)
+            if model_class and hasattr(model_class, "schema"):
+                schema = model_class.schema()
+                if schema:
+                    records = self.get_local_store("component")
+                    if not any(
+                        item.get("rec_name") == model_name for item in records
+                    ):
+                        records.append(copy.deepcopy(schema))
+
+        for schema in self.get_local_store("component"):
+            model_name = schema.get("rec_name", "").strip()
+            if not model_name:
+                continue
+            self.dependencies[model_name] = []
+            model_file = f"{self.models_path}/{model_name}.py"
+            if model_name not in self.orm_static_models_map:
+                if not exists(model_file):
+                    await self.init_model_and_write_code_from_schema(schema)
+                await self.import_module_model(model_name)
+            if model_name not in self.env.models:
+                await self.make_model(
+                    model_name,
+                    schema=schema,
+                    virtual=False,
+                    data_model=schema.get("data_model", ""),
+                )
+        await self.build_reverse_dependencies()
+
+    async def init_session(self, token):
+        session_data = self.env.params.get("current_session")
+        if not session_data and token:
+            for item in self.get_local_store("session"):
+                if item.get("token") == token:
+                    session_data = copy.deepcopy(item)
+                    break
+        if token:
+            self.rest_client.set_token(token)
+        if not session_data:
+            self.user_session = None
+            return
+        session_data = Session.normalize_datetime_fields(self.tz, session_data)
+        self.user_session = Session(
+            **session_data,
+            exclude_none=True,
+            exclude_unset=True,
+            check_fields=False,
+        )
+
+    async def add_model(self, model_name, virtual=False, data_model=""):
+        schema = {}
+        if not virtual:
+            for item in self.get_local_store("component"):
+                if item.get("rec_name") == model_name:
+                    schema = copy.deepcopy(item)
+                    break
+        await self.make_model(
+            model_name,
+            schema=schema,
+            virtual=virtual,
+            data_model=data_model or schema.get("data_model", ""),
+        )
+
+    async def make_model(
+        self, model_name, schema: dict = None, virtual=False, data_model=""
+    ):
+        if schema is None:
+            schema = {}
+        if model_name in list(self.orm_static_models_map.keys()) or virtual:
+            session_model = model_name == "session"
+            if not data_model and schema:
+                data_model = schema.get("data_model", "")
+            if (
+                not data_model
+                and not virtual
+                and self.orm_static_models_map[model_name].get_data_model()
+            ):
+                data_model = self.orm_static_models_map[
+                    model_name
+                ].get_data_model()
+            if data_model and virtual:
+                data_model_o = self.env.models.get(data_model)
+                if data_model_o and data_model_o.data_model:
+                    data_model = data_model_o.data_model
+            self.env.models[model_name] = self.cls_model(
+                model_name,
+                self,
+                data_model=data_model,
+                static=self.orm_static_models_map.get(model_name, None),
+                virtual=virtual,
+                schema=schema,
+                session_model=session_model,
+            )
+            await self.env.models[model_name].init_model()
+
+    async def update_model(self, schema, component):
+        model_name = schema.get("rec_name")
+        records = self.get_local_store("component")
+        updated = False
+        for idx, item in enumerate(records):
+            if item.get("rec_name") == model_name:
+                records[idx] = copy.deepcopy(schema)
+                updated = True
+                break
+        if not updated:
+            records.append(copy.deepcopy(schema))
+        if model_name in self.orm_static_models_map:
+            self.orm_static_models_map.pop(model_name)
+        await self.init_model_and_write_code_from_schema(schema)
+        await self.import_module_model(model_name)
+        await self.make_model(
+            model_name,
+            schema=schema,
+            virtual=False,
+            data_model=schema.get("data_model", ""),
+        )
+
+
+class OzonModelRestBase(OzonModelBase):
+    interface_type = "rest"
+
+    def _is_local_only_model(self) -> bool:
+        return self.orm.is_local_model(self.name)
+
+    def _local_store(self) -> list[dict]:
+        return self.orm.get_local_store(self.name)
+
+    def _project_local_fields(self, record: dict, fields: dict) -> dict:
+        if not fields:
+            return copy.deepcopy(record)
+        projected = {}
+        include_keys = [key for key, enabled in fields.items() if enabled]
+        if include_keys:
+            for key in include_keys:
+                if key in record:
+                    projected[key] = record[key]
+            return projected
+        projected = copy.deepcopy(record)
+        for key, enabled in fields.items():
+            if enabled is False and key in projected:
+                projected.pop(key)
+        return projected
+
+    def _sort_local_records(
+        self, records: list[dict], sort: str
+    ) -> list[dict]:
+        sorted_records = list(records)
+        sort_rules = list(self.eval_sort_str(sort).items())
+        for key, direction in reversed(sort_rules):
+            sorted_records.sort(
+                key=lambda item: _read_record_value(item, key),
+                reverse=direction < 0,
+            )
+        return sorted_records
+
+    def _extract_response_data(self, response, default=None):
+        if response is None:
+            return default
+        if isinstance(response, dict):
+            if "data" in response:
+                return response["data"]
+            if "items" in response:
+                return response["items"]
+            if "result" in response:
+                return response["result"]
+            if "count" in response:
+                return response["count"]
+            if "value" in response:
+                return response["value"]
+        return response
+
+    async def _post_remote(self, operation_name: str, payload: dict):
+        return await self.orm.rest_client.post_operation(
+            operation_name,
+            payload=payload,
+        )
+
+    async def count_by_filter(self, domain: dict) -> int:
+        self.init_status()
+        if self._is_local_only_model():
+            return len(
+                [
+                    item
+                    for item in self._local_store()
+                    if _match_local_domain(item, domain)
+                ]
+            )
+        result = await self._post_remote(
+            "count",
+            {
+                "model": self.name,
+                "data_model": self.data_model,
+                "domain": make_json_compatible(domain),
+            },
+        )
+        data = self._extract_response_data(result, default=0)
+        if isinstance(data, dict) and "count" in data:
+            return int(data["count"])
+        return int(data or 0)
+
+    async def load_raw(self, domain: dict) -> Union[None, dict]:
+        self.init_status()
+        domain = traverse_and_convertd_datetime(domain)
+        if self._is_local_only_model():
+            for item in self._local_store():
+                if _match_local_domain(item, domain):
+                    return copy.deepcopy(item)
+            self.error_status(_("Not found"), domain)
+            return {}
+        result = await self._post_remote(
+            "load",
+            {
+                "model": self.name,
+                "data_model": self.data_model,
+                "domain": make_json_compatible(domain),
+            },
+        )
+        data = self._extract_response_data(result, default={})
+        if not data:
+            self.error_status(_("Not found"), domain)
+            return {}
+        return data
+
+    async def find_raw(
+        self,
+        domain: Optional[dict[str, Any]] = None,
+        sort: str = "",
+        limit: int = 0,
+        skip: int = 0,
+        pipeline_items: Optional[list[dict[str, Any]]] = None,
+        obfuscate_fields: Optional[list[str]] = None,
+        fields: Optional[dict] = None,
+        batch_size: int = 0,
+        need_cursor: bool = False,
+    ):
+        self.init_status()
+        domain = traverse_and_convertd_datetime(domain or {})
+        fields = fields or {}
+        if self._is_local_only_model():
+            records = [
+                copy.deepcopy(item)
+                for item in self._local_store()
+                if _match_local_domain(item, domain)
+            ]
+            records = self._sort_local_records(records, sort)
+            if skip > 0:
+                records = records[skip:]
+            if limit > 0:
+                records = records[:limit]
+            return [
+                self._project_local_fields(item, fields) for item in records
+            ]
+        if pipeline_items or obfuscate_fields:
+            return await self.aggregate_raw(
+                domain=domain,
+                sort=sort,
+                limit=limit,
+                skip=skip,
+                pipeline_items=pipeline_items,
+                obfuscate_fields=obfuscate_fields,
+                fields=fields,
+                batch_size=batch_size,
+                need_cursor=need_cursor,
+            )
+        result = await self._post_remote(
+            "find",
+            {
+                "model": self.name,
+                "data_model": self.data_model,
+                "domain": make_json_compatible(domain),
+                "sort": sort,
+                "limit": limit,
+                "skip": skip,
+                "fields": fields,
+                "batch_size": batch_size,
+            },
+        )
+        return self._extract_response_data(result, default=[])
+
+    async def aggregate_raw(
+        self,
+        domain: Optional[dict[str, Any]] = None,
+        sort: str = "",
+        limit: int = 0,
+        skip: int = 0,
+        pipeline_items: Optional[list[dict[str, Any]]] = None,
+        obfuscate_fields: Optional[list[str]] = None,
+        fields: Optional[dict] = None,
+        batch_size: int = 0,
+        need_cursor: bool = False,
+    ):
+        self.init_status()
+        result = await self._post_remote(
+            "aggregate",
+            {
+                "model": self.name,
+                "data_model": self.data_model,
+                "domain": make_json_compatible(domain or {}),
+                "sort": sort,
+                "limit": limit,
+                "skip": skip,
+                "pipeline_items": make_json_compatible(pipeline_items or []),
+                "obfuscate_fields": obfuscate_fields or [],
+                "fields": fields or {},
+                "batch_size": batch_size,
+            },
+        )
+        return self._extract_response_data(result, default=[])
+
+    async def insert(
+        self, record: CoreModel, is_many=False
+    ) -> Union[None, CoreModel]:
+        self.init_status()
+        if not self.chk_write_permission():
+            msg = _("Session is Readonly")
+            self.error_status(msg, data={})
+            return None
+        if self._is_local_only_model():
+            record.create_datetime = record.utc_now()
+            if self.user_session:
+                record = self.set_user_data(record, self.user_session)
+            if not is_many:
+                record.list_order = await self.count()
+            record.active = True
+            self._local_store().append(record.get_dict_json())
+            return await self.load(record.rec_name_domain())
+        result = await self._post_remote(
+            "insert",
+            {
+                "model": self.name,
+                "data_model": self.data_model,
+                "record": record.get_dict_json(),
+                "is_many": is_many,
+            },
+        )
+        data = self._extract_response_data(result, default={})
+        if not data:
+            self.error_status(
+                _("Error save  %s ") % str(record.rec_name),
+                record.get_dict_copy(),
+            )
+            return None
+        await self.load_data(data)
+        return self.modelr
+
+    async def update(
+        self,
+        record: CoreModel,
+        remove_mata=True,
+        force_update_whole_record=False,
+    ) -> Union[None, CoreModel]:
+        self.init_status()
+        if not self.chk_write_permission():
+            msg = _("Session is Readonly")
+            self.error_status(msg, data=record.get_dict_json())
+            return None
+        if self._is_local_only_model():
+            records = self._local_store()
+            record_data = record.get_dict_json()
+            record_data["update_datetime"] = record.utc_now().isoformat()
+            if self.user_session:
+                record_data["update_uid"] = self.user_session.get("user.uid")
+            for idx, item in enumerate(records):
+                if item.get("rec_name") == record.rec_name:
+                    records[idx] = record_data
+                    return await self.load(record.rec_name_domain())
+            self.error_status(_("Not found"), record.rec_name_domain())
+            return None
+        result = await self._post_remote(
+            "update",
+            {
+                "model": self.name,
+                "data_model": self.data_model,
+                "record": record.get_dict_json(),
+                "remove_mata": remove_mata,
+                "force_update_whole_record": force_update_whole_record,
+            },
+        )
+        data = self._extract_response_data(result, default={})
+        if not data:
+            self.error_status(_("Not found"), record.rec_name_domain())
+            return None
+        await self.load_data(data)
+        return self.modelr
+
+    async def remove(self, record: CoreModel) -> bool:
+        self.init_status()
+        if not self.chk_write_permission():
+            msg = _("Session is Readonly")
+            self.error_status(msg, data=record.get_dict_json())
+            return False
+        if self._is_local_only_model():
+            original_len = len(self._local_store())
+            self.orm.local_store[self.name] = [
+                item
+                for item in self._local_store()
+                if item.get("rec_name") != record.rec_name
+            ]
+            return len(self.orm.local_store[self.name]) != original_len
+        result = await self._post_remote(
+            "remove",
+            {
+                "model": self.name,
+                "data_model": self.data_model,
+                "record": record.get_dict_json(),
+            },
+        )
+        data = self._extract_response_data(result, default=True)
+        if isinstance(data, dict):
+            return bool(data.get("deleted", data.get("ok", False)))
+        return bool(data)
+
+    async def remove_all(self, domain) -> int:
+        self.init_status()
+        domain = traverse_and_convertd_datetime(domain)
+        if self._is_local_only_model():
+            original = self._local_store()
+            remain = [
+                item
+                for item in original
+                if not _match_local_domain(item, domain)
+            ]
+            removed = len(original) - len(remain)
+            self.orm.local_store[self.name] = remain
+            return removed
+        result = await self._post_remote(
+            "remove_all",
+            {
+                "model": self.name,
+                "data_model": self.data_model,
+                "domain": make_json_compatible(domain),
+            },
+        )
+        data = self._extract_response_data(result, default=0)
+        if isinstance(data, dict) and "count" in data:
+            return int(data["count"])
+        return int(data or 0)
+
+    async def distinct(self, field_name: str, query: dict) -> list[Any]:
+        self.init_status()
+        query = traverse_and_convertd_datetime(query)
+        if self._is_local_only_model():
+            values = []
+            for item in self._local_store():
+                if _match_local_domain(item, query):
+                    values.append(_read_record_value(item, field_name))
+            return list(dict.fromkeys(values))
+        result = await self._post_remote(
+            "distinct",
+            {
+                "model": self.name,
+                "data_model": self.data_model,
+                "field_name": field_name,
+                "query": make_json_compatible(query),
+            },
+        )
+        data = self._extract_response_data(result, default=[])
+        return list(data or [])
+
+    async def search_all_distinct(
+        self,
+        distinct: str = "",
+        query: Optional[dict] = None,
+        compute_label: str = "",
+        sort: str = "",
+        limit: int = 0,
+        skip: int = 0,
+        raw_result: bool = False,
+    ) -> list[Any]:
+        self.init_status()
+        result = await self._post_remote(
+            "search_all_distinct",
+            {
+                "model": self.name,
+                "data_model": self.data_model,
+                "distinct": distinct,
+                "query": make_json_compatible(query or {}),
+                "compute_label": compute_label,
+                "sort": sort,
+                "limit": limit,
+                "skip": skip,
+                "raw_result": raw_result,
+            },
+        )
+        data = self._extract_response_data(result, default=[])
+        if raw_result:
+            return list(data or [])
+        results = []
+        for item in data or []:
+            await self.load_data(item)
+            results.append(self.modelr)
+        return results
+
+    async def stream_find(
+        self,
+        domain: Optional[dict[str, Any]] = None,
+        sort: str = "",
+        limit=0,
+        skip=0,
+        pipeline_items: Optional[list[dict[str, Any]]] = None,
+        obfuscate_fields: Optional[list[str]] = None,
+        fields: Optional[dict] = None,
+        batch_size: int = 500,
+    ) -> AsyncIterator[Any]:
+        result = await self.find_raw(
+            domain=domain,
+            sort=sort,
+            limit=limit,
+            skip=skip,
+            pipeline_items=pipeline_items,
+            obfuscate_fields=obfuscate_fields,
+            fields=fields,
+            batch_size=batch_size,
+            need_cursor=True,
+        )
+        for rec_data in result:
+            modelr, _ = await self._load_data(
+                self.model,
+                rec_data,
+                self.virtual,
+                self.data_model,
+                self.is_session_model,
+                self.tz,
+                self.virtual_fields_parser,
+            )
+            yield modelr
+
+
 class OzonModel(OzonModelBase):
     def __init__(
         self,
@@ -1063,3 +1891,46 @@ class OzonModel(OzonModelBase):
                 self.data_model, "delete", record.rec_name, record.get_dict()
             )
         return await super().remove(record)
+
+
+class OzonModelRest(OzonModelRestBase):
+    def __init__(
+        self,
+        model_name,
+        orm: OzonOrmRest,
+        data_model="",
+        session_model=False,
+        virtual=False,
+        static: CoreModel = None,
+        schema={},
+    ):
+        self.orm: OzonOrmRest = orm
+        self.env: OzonEnvBase = orm.env
+        self.setting_app: Settings = orm.app_settings
+        self.db = None
+        self.mm_from_cache = False
+        self.use_cache = False
+        self.private_models = ["session", "settings"]
+        self.service: ModelService = None
+        super(OzonModelRest, self).__init__(
+            model_name=model_name,
+            setting_app=self.setting_app,
+            data_model=data_model,
+            session_model=session_model,
+            virtual=virtual,
+            static=static,
+            schema=schema,
+        )
+
+    @property
+    def user_session(self):
+        return self.orm.user_session
+
+    def init_status(self):
+        if self.user_session and self.user_session.is_public:
+            if self.name.lower() in self.orm.private_models:
+                raise SessionException(detail="Permission Denied")
+        super().init_status()
+
+    def chk_write_permission(self) -> bool:
+        return super().chk_write_permission()

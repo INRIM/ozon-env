@@ -345,6 +345,8 @@ class OzonMBase:
 
 
 class OzonModelBase(OzonMBase):
+    interface_type = "db"
+
     @property
     def message(self):
         return self.status.msg
