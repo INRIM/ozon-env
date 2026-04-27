@@ -47,9 +47,9 @@ def build_test_db_cfg(
 
 
 class RealOzonEnvApiServer:
-    def __init__(self, cfg: dict, api_prefix: str = "/base_usr/v2"):
-        self.cfg = copy.deepcopy(cfg)
-        self.api_prefix = "/" + api_prefix.strip("/")
+    def __init__(self, cfg: dict = {}, api_prefix: str = "/v2"):
+        self.cfg = cfg
+        self.api_prefix = api_prefix
         self.httpd: ThreadingHTTPServer | None = None
         self.thread: threading.Thread | None = None
         self.base_url = ""
@@ -112,7 +112,7 @@ class RealOzonEnvApiServer:
                 return path[len(api_prefix) :].strip("/")
 
             async def _create_env(self, validate_auth: bool = True):
-                env = OzonEnv(copy.deepcopy(cfg))
+                env = OzonEnv()
                 await env.init_env()
                 try:
                     await init_main_collections(env.db)

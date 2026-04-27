@@ -1546,7 +1546,7 @@ class OzonOrmRest(OzonOrm):
             ),
             api_prefix=self.config_system.get(
                 "rest_api_prefix",
-                os.getenv("OZON_REST_API_PREFIX", "/base_usr/v2"),
+                os.getenv("OZON_REST_API_PREFIX", "/v2"),
             ),
             token=self.config_system.get(
                 "rest_token",

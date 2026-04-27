@@ -396,12 +396,8 @@ async def test_init_worker_ok():
 
 
 @pytestmark
-async def test_worker2_api_with_rest_backend(tmp_path):
-    db_cfg = build_test_db_cfg(
-        tmp_path / "worker-api-db-models",
-        app_code=os.getenv("APP_CODE", "test"),
-    )
-    db_env = OzonEnv(db_cfg)
+async def test_worker2_api_with_rest_backend():
+    db_env = OzonEnv()
     await db_env.init_env()
     await init_main_collections(db_env.db)
     auth_res = await auth_env(db_env, username="adminuser")
@@ -431,11 +427,11 @@ async def test_worker2_api_with_rest_backend(tmp_path):
     current_token = await get_auth_token(username="adminuser")
 
     try:
-        with RealOzonEnvApiServer(db_cfg) as api:
+        with RealOzonEnvApiServer() as api:
             worker = MockWorker2Api(
                 cfg={
                     "app_code": "test-rest-worker",
-                    "models_folder": str(tmp_path / "models"),
+                    "models_folder": os.environ["MODELS_FOLDER"],
                     "rest_base_url": api.base_url,
                     "rest_oauth_url": os.environ["OZON_OAUTH_URL"],
                     "rest_client_id": os.environ["OZON_M2M_CLIENT_ID"],
