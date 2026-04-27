@@ -35,7 +35,7 @@
   "upload_folder": "/uploads",
   "models_folder": "tests/models",
   "delete_record_after_days": 2,
-  "session_expire_hours": 48,
+  "token_expire_hours": 48,
   "server_datetime_mask": "%Y-%m-%dT%H:%M:%S",
   "server_date_mask": "%Y-%m-%d",
   "ui_datetime_mask": "%d/%m/%Y %H:%M:%S",

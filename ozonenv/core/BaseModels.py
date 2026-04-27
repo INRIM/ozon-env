@@ -11,16 +11,15 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, date, time
 from functools import reduce
-from typing import Optional, get_origin, get_args
+from typing import Any, Optional, get_origin, get_args
 from typing import TypeVar, Generic, List, Dict
 from zoneinfo import ZoneInfo
 
 from bson import Decimal128, Int64
 from dateutil.parser import parse
-from pydantic import BaseModel, Field, field_serializer, AwareDatetime
-
 from ozonenv.core.db.BsonTypes import PyObjectId, bson, BsonEncoder
 from ozonenv.core.utils import unwrap_optional
+from pydantic import BaseModel, Field, field_serializer, AwareDatetime
 
 defaultdt = '1970-01-01T00:00:00+00:00'
 
@@ -698,6 +697,101 @@ class BasicModel(CoreModel):
         return {}
 
 
+class User(BasicModel):
+    uid: str
+    password: str = Field(default="", exclude=True)
+    token: dict[str, Any] | str = Field(default_factory=dict)
+    req_id: str = ""
+    parent: str = ""
+    childs: list[Any] = Field(default_factory=list)
+    last_update: int | str | Decimal128 = 0
+    is_admin: bool = False
+    is_bot: bool = False
+    is_api: bool = False
+    use_auth: bool = True
+    rec_name: str = ""
+    nome: str = ""
+    cognome: str = ""
+    mail: str = ""
+    matricola: str = ""
+    codicefiscale: str = ""
+    data_value: dict[str, Any] = Field(default_factory=dict)
+    allowed_users: list[str] = Field(default_factory=list)
+    user_data: dict[str, Any] = Field(default_factory=dict)
+    list_order: int = 1
+    user_preferences: dict[str, Any] = Field(default_factory=dict)
+    user_function: str = ""
+    function: str = ""
+    owner_function: str = ""
+    owner_sector: Optional[str] = ""
+    owner_mail: Optional[str] = ""
+    owner_sector_id: Optional[int] = 0
+    owner_personal_type: Optional[str] = ""
+    owner_job_title: Optional[str] = ""
+    create_datetime: Optional[datetime] = None
+    update_datetime: Optional[datetime] = None
+    sector: Optional[str] = ""
+    sector_id: Optional[int] = 0
+    sector_code: Optional[str] = ""
+    last_login: Optional[datetime] = None
+    sys: bool = False
+    active: bool = True
+    default: bool = True
+    demo: bool = False
+    tz: str = "Europe/Rome"
+    user_role: list[str] = Field(default_factory=lambda: ["base"])
+    tech_admin: bool = False
+    groups: list[str] = Field(default_factory=list)
+    full_name: str = ""
+    is_public: bool = False
+    claims: dict[str, Any] = Field(default_factory=dict)
+    user: dict[str, Any] = Field(default_factory=dict)
+    client_id: str = ""
+
+    @classmethod
+    def get_unique_fields(cls):
+        return ["rec_name", "uid"]
+
+
+class JobContext(BasicModel):
+    job_token: str
+    client_id: str
+    job_key: str
+    process_instance_key: str
+    resolved_user_id: str
+    issued_at: datetime
+    expires_at: datetime
+
+    @classmethod
+    def get_unique_fields(cls):
+        return ["job_token"]
+
+    @classmethod
+    def datetime_fields(cls):
+        return {
+            "issued_at": {
+                "transform": {
+                    "type": "datetime",
+                }
+            },
+            "expires_at": {
+                "transform": {
+                    "type": "datetime",
+                }
+            },
+            "create_datetime": {
+                "transform": {
+                    "type": "datetime",
+                }
+            },
+            "update_datetime": {
+                "transform": {
+                    "type": "datetime",
+                }
+            },
+        }
+
+
 class AttachmentTrash(BasicModel):
     parent: str = ""
     model: str = ""
@@ -745,59 +839,6 @@ class Component(BasicModel):
     @classmethod
     def get_unique_fields(cls):
         return ["rec_name", "title"]
-
-    @classmethod
-    def datetime_fields(self):
-        return {
-            "create_datetime": {
-                "transform": {
-                    "type": "datetime",
-                }
-            },
-            "update_datetime": {
-                "transform": {
-                    "type": "datetime",
-                }
-            },
-        }
-
-
-class Session(BasicModel):
-    parent_session: str = ""
-    app_code: str = ""
-    uid: str
-    token: str = ""
-    req_id: str = ""
-    childs: list[Dict] = []
-    login_complete: bool = False
-    last_update: float = 0
-    is_admin: bool = False
-    use_auth: bool = False
-    is_api: bool = False
-    is_public: bool = False
-    full_name: str = ""
-    divisione_uo: str = ""
-    user_function: str = ""
-    function: str = ""
-    sector: Optional[str] = ""
-    sector_id: Optional[int] = 0
-    expire_datetime: datetime
-    user: dict = {}
-    app: dict = {}
-    apps: dict = {}
-    queries: dict = {}
-    action: dict = {}
-    server_settings: dict = {}
-    record: dict = {}
-    tz: str = "Europe/Rome"
-
-    @classmethod
-    def get_unique_fields(cls):
-        return ["token"]
-
-    @classmethod
-    def no_clone_field_keys(cls):
-        return ["token", "list_order"]
 
     @classmethod
     def datetime_fields(self):
@@ -1018,9 +1059,7 @@ class Settings(BasicModel):
     delete_record_after_days: Optional[int] = Field(
         1, title='Delete Record After Days'
     )
-    session_expire_hours: Optional[int] = Field(
-        12, title='Session Expire Hours'
-    )
+    token_expire_hours: Optional[int] = Field(12, title='Token Expire Hours')
     theme: Optional[str] = Field('italia', title='Theme')
     logo_img_url: Optional[str] = Field('', title='Logo Img Url')
     server_datetime_mask: Optional[str] = Field(
@@ -1146,7 +1185,7 @@ class Settings(BasicModel):
             'upload_folder',
             'web_concurrency',
             'delete_record_after_days',
-            'session_expire_hours',
+            'token_expire_hours',
             'theme',
             'logo_img_url',
             'server_datetime_mask',
@@ -1458,7 +1497,7 @@ class Settings(BasicModel):
                 'min': False,
                 'max': False,
             },
-            'session_expire_hours': {
+            'token_expire_hours': {
                 'ctype': 'number',
                 'disabled': False,
                 'readonly': False,

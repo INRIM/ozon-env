@@ -13,6 +13,7 @@ from pydantic import (
     GetJsonSchemaHandler,
 )
 from pydantic.json_schema import JsonSchemaValue
+
 # from pydantic.datetime_parse import parse_datetime
 from pydantic_core import PydanticCustomError, core_schema
 
@@ -34,7 +35,10 @@ class PyObjectId(BsonObjectId):
             return v
         if isinstance(v, str) and BsonObjectId.is_valid(v):
             return v
-        raise PydanticCustomError("invalid ObjectId specified")
+        raise PydanticCustomError(
+            "invalid_objectid",
+            "invalid ObjectId specified",
+        )
 
     @classmethod
     def __get_pydantic_json_schema__(
@@ -47,6 +51,7 @@ class PyObjectId(BsonObjectId):
 
 # Codec
 
+
 class JsonEncoder(json.JSONEncoder):
     """JSON serializer for objects not serializable by default json code"""
 
@@ -56,6 +61,7 @@ class JsonEncoder(json.JSONEncoder):
         if isinstance(o, (datetime.datetime, datetime.date, datetime.time)):
             return o.isoformat()
         return super().default(o)
+
 
 class BsonEncoder(JsonEncoder):
     """JSON serializer for objects not serializable by default json code"""

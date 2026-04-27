@@ -5,27 +5,31 @@ from ozonenv.core.db.mongodb_utils import (
     connect_to_mongo,
     close_mongo_connection,
     DbSettings,
-    AsyncIOMotorCollection
+    AsyncIOMotorCollection,
 )
 from test_common import *
+from tests.helpers.keycloak import get_keycloak_token
 
 pytestmark = pytest.mark.asyncio
 
 
 @pytestmark
+async def test_keycloak_user_token() -> str:
+    return await get_keycloak_token(
+        username="testuser",
+        password="testpass",
+    )
+
+
+@pytestmark
 async def test_ozonenv_cfg():
-    init_env_var()
-    config_system = {
-        "app_code": os.getenv("APP_CODE"),
-        "mongo_user": os.getenv("MONGO_USER"),
-        "mongo_pass": os.getenv("MONGO_PASS"),
-        "mongo_url": os.getenv("MONGO_URL"),
-        "mongo_db": os.getenv("MONGO_DB"),
-        "mongo_replica": os.getenv("MONGO_REPLICA"),
-        "models_folder": os.getenv("MODELS_FOLDER")
-    }
-    env = OzonEnv(config_system)
+    env = OzonEnv()
     assert env.config_system['app_code'] == 'test'
+    assert env.config_system["mongo_url"] == "localhost:10002"
+    assert (
+        env.config_system["keycloak_issuer"]
+        == "http://localhost:10765/realms/test"
+    )
 
 
 @pytestmark
@@ -34,6 +38,7 @@ async def test_ozonenv_from_os_env():
     assert env.config_system['app_code'] == 'test'
 
 
+@pytestmark
 async def test_init_env_db_exist():
     config_system = {
         "app_code": os.getenv("APP_CODE"),
@@ -41,14 +46,14 @@ async def test_init_env_db_exist():
         "mongo_pass": os.getenv("MONGO_PASS"),
         "mongo_url": os.getenv("MONGO_URL"),
         "mongo_db": os.getenv("MONGO_DB"),
-        "mongo_replica": os.getenv("MONGO_REPLICA")
+        "mongo_replica": os.getenv("MONGO_REPLICA"),
     }
     db_settings = DbSettings(**config_system)
     db = await connect_to_mongo(db_settings)
     env = OzonEnv()
     await env.init_orm(db=db)
-    session = env.db.engine.get_collection('session')
-    assert isinstance(session, AsyncIOMotorCollection)
+    user = env.db.engine.get_collection('user')
+    assert isinstance(user, AsyncIOMotorCollection)
     await env.close_env()
     assert db.client.is_primary
     await close_mongo_connection(db)
@@ -57,24 +62,22 @@ async def test_init_env_db_exist():
     assert str(excinfo.value) == 'Cannot use MongoClient after close'
 
 
-
 @pytestmark
 async def test_init_env():
     env = OzonEnv()
     env.use_cache = False
     await env.init_orm()
     await init_main_collections(env.db)
-    session = env.db.engine.get_collection('session')
-    sessions = await session.find({}).to_list(length=None)
-    assert len(sessions) == 2
-    stored_obj = await session.find_one({'token': 'PUBLIC'})
-    assert stored_obj['uid'] == "public"
-    assert stored_obj['is_public'] is True
-    stored_obj = await session.find_one({'token': 'BA6BA930'})
-    assert stored_obj['uid'] == "admin"
+    user = env.db.engine.get_collection('user')
+    users = await user.find({}).to_list(length=None)
+    assert len(users) == 2
+    stored_obj = await user.find_one({'uid': 'testuser'})
+    assert stored_obj['uid'] == "testuser"
+    assert stored_obj['is_public'] is False
+    stored_obj = await user.find_one({'uid': 'adminuser'})
+    assert stored_obj['uid'] == "adminuser"
     settings = env.db.engine.get_collection('settings')
-    query = {"rec_name":
-                 env.config_system.get("app_code")}
+    query = {"rec_name": env.config_system.get("app_code")}
     set_stored_obj = await settings.find_one(query)
     assert set_stored_obj['rec_name'] == "test"
     await env.close_db()
@@ -82,15 +85,28 @@ async def test_init_env():
 
 @pytestmark
 async def test_make_app_session():
+    seed_env = OzonEnv()
+    await seed_env.init_orm()
+    await init_main_collections(seed_env.db)
+    await seed_env.close_db()
+
     env = OzonEnv()
     assert env.cls_model.__name__ == "OzonModel"
+
+    token = await get_keycloak_token(
+        username="adminuser",
+        password="adminpass",
+    )
+
     res = await env.make_app_session(
-        {"current_session_token": "BA6BA930"},
-        redis_url="redis://localhost:10003")
+        {"current_token": token}, redis_url="redis://localhost:10003"
+    )
     assert res.fail is False
-    assert len(env.models) == 4
-    assert env.orm.user_session.get('uid') == "admin"
-    assert env.orm.user_session.get('create_datetime') == BasicModel.iso_to_utc("2022-08-05T05:10:02+02:00")
+    assert len(env.models) == 5
+    assert env.orm.user_session.get('uid') == "adminuser"
+    assert env.orm.user_session.get(
+        'create_datetime'
+    ) == BasicModel.iso_to_utc("2022-08-05T05:10:02+02:00")
     assert env.orm.user_session.active is True
     assert env.orm.user_session.is_to_delete() is False
     assert env.orm.user_session.is_error() is False
@@ -100,16 +116,16 @@ async def test_make_app_session():
 async def test_make_app_session_error():
     env = OzonEnv()
     res = await env.make_app_session(
-        {"current_session_token": "BA6B----"},
+        {"current_token": "BA6B----"},
         use_cache=True,
-        redis_url="redis://localhost:100013")
+        redis_url="redis://localhost:100013",
+    )
     assert res.fail is True
-    assert res.msg == "Token BA6B---- non abilitato"
+    assert res.msg
 
 
 @pytestmark
 async def test_two_independent_connections_and_delayed_close():
-    init_env_var()
     cfg1 = {
         "app_code": os.getenv("APP_CODE"),
         "mongo_user": os.getenv("MONGO_USER"),

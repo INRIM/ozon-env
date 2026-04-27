@@ -30,36 +30,12 @@ async def readfile(upload_path, fileurl):
 
 
 DOC_TYPES = [
-    {
-        "label": "Ordine",
-        "value": "ordine"
-    },
-    {
-        "label": "Fattura",
-        "value": "fattura"
-    },
-    {
-        "label": "Incarico",
-        "value": "incarico"
-    },
-    {
-        "label": "Rda contante",
-        "value": "rda_contante"
-    },
-    {
-        "label": "Rda Carta Credito",
-        "value": "rda_cc"
-    },
-    {
-        "label": "Commessa",
-        "value": "commessa"
-    },
-    {
-        "label": "Rda",
-        "value": "rda"
-    },
-    {
-        "label": "Reso",
-        "value": "reso"
-    }
+    {"label": "Ordine", "value": "ordine"},
+    {"label": "Fattura", "value": "fattura"},
+    {"label": "Incarico", "value": "incarico"},
+    {"label": "Rda contante", "value": "rda_contante"},
+    {"label": "Rda Carta Credito", "value": "rda_cc"},
+    {"label": "Commessa", "value": "commessa"},
+    {"label": "Rda", "value": "rda"},
+    {"label": "Reso", "value": "reso"},
 ]

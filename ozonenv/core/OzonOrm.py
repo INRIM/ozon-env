@@ -4,26 +4,28 @@ import importlib
 import json
 import logging
 import os
+import secrets
 import sys
 import time as time_
+import uuid
 from contextvars import ContextVar
+from datetime import timedelta
 from os.path import dirname, exists
 from pathlib import Path
 from typing import Any, AsyncIterator, Optional, Union
 
 import aiofiles
 from aiopathlib import AsyncPath
-from starlette.concurrency import run_in_threadpool
-
 from ozonenv.core.BaseModels import (
     DbViewModel,
     Component,
-    Session,
     Settings,
     AttachmentTrash,
     CoreModel,
     Dict,
     BasicModel,
+    JobContext,
+    User,
 )
 from ozonenv.core.ModelService import ModelService
 from ozonenv.core.OzonClient import (
@@ -32,6 +34,12 @@ from ozonenv.core.OzonClient import (
     make_json_compatible,
 )
 from ozonenv.core.OzonModel import OzonModelBase, BasicReturn
+from ozonenv.core.auth import (
+    KeycloakAuthManager,
+    KeycloakAuthSettings,
+    TokenExpiredError,
+    TokenVerificationError,
+)
 from ozonenv.core.cache.cache_utils import stop_cache  # , init_cache
 from ozonenv.core.db.mongodb_utils import (
     connect_to_mongo,
@@ -41,10 +49,11 @@ from ozonenv.core.db.mongodb_utils import (
     Collection,
     _DocumentType,
 )
-from ozonenv.core.exceptions import SessionException
+from ozonenv.core.exceptions import OzonPermissionError
 from ozonenv.core.i18n import _
 from ozonenv.core.i18n import update_translation
 from ozonenv.core.utils import traverse_and_convertd_datetime
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__file__)
 
@@ -76,6 +85,12 @@ class OzonEnvBase:
                 "mongo_db": os.getenv("MONGO_DB"),
                 "mongo_replica": os.getenv("MONGO_REPLICA"),
                 "models_folder": os.getenv("MODELS_FOLDER", "/models"),
+                "keycloak_jwks_url": os.getenv("OZON_KEYCLOAK_JWKS_URL"),
+                "keycloak_issuer": os.getenv("OZON_KEYCLOAK_ISSUER"),
+                "token_audience": os.getenv("OZON_TOKEN_AUDIENCE"),
+                "oauth_url": os.getenv("OZON_OAUTH_URL"),
+                "client_id": os.getenv("OZON_CLIENT_ID"),
+                "client_secret": os.getenv("OZON_CLIENT_SECRET"),
             }
         else:
             self.config_system = cfg.copy()
@@ -96,14 +111,17 @@ class OzonEnvBase:
             )
             self.backend_interface = "db"
         self.db_settings = None
-        if self.backend_interface == "db":
+        if self.has_complete_db_config():
             self.db_settings = DbSettings(**self.config_system)
         self.model = ""
         self.models: Dict[str, cls_model] = {}
         self.params = {}
         self.session_is_api = False
-        self.user_session: CoreModel
+        self.user_session: Optional[User] = None
         self.session_token = None
+        self.current_job_token = ""
+        self.current_job_context: Optional[JobContext] = None
+        self.current_token_data: dict[str, Any] = {}
         self.use_cache = False
         self.cache_index = "ozon_env"
         self.redis_url = ""
@@ -140,7 +158,7 @@ class OzonEnvBase:
             "data_value_runtime_only_models",
             os.getenv(
                 "DATA_VALUE_RUNTIME_ONLY_MODELS",
-                "session,component,settings,user",
+                "component,settings,user,jobcontext",
             ),
         )
         if runtime_only_models is None:
@@ -168,6 +186,12 @@ class OzonEnvBase:
                 "Invalid data_value_bg_default_hours '%s': fallback to 2",
                 bg_hours,
             )
+        self._user_auth_manager: Optional[KeycloakAuthManager] = None
+        self._rest_auth_manager: Optional[KeycloakAuthManager] = None
+
+    def has_complete_db_config(self) -> bool:
+        required = ["mongo_user", "mongo_pass", "mongo_url", "mongo_db"]
+        return all(self.config_system.get(item) for item in required)
 
     def get_backend_interface(self) -> str:
         return self.backend_interface
@@ -189,6 +213,51 @@ class OzonEnvBase:
                 "backend_interface '%s'"
                 % (interface_type, self.get_backend_interface())
             )
+
+    def get_current_token_input(self):
+        return (
+            self.params.get("current_token")
+            or self.params.get("access_token")
+            or self.params.get("token")
+            or {}
+        )
+
+    def get_current_job_token(self) -> str:
+        return (
+            self.params.get("job_token")
+            or self.config_system.get("job_token")
+            or os.getenv("OZON_JOB_TOKEN", "")
+        )
+
+    def _get_auth_settings(self, prefix: str = "") -> KeycloakAuthSettings:
+        return KeycloakAuthSettings.from_config(self.config_system, prefix)
+
+    def get_user_auth_manager(self) -> KeycloakAuthManager:
+        if self._user_auth_manager is None:
+            self._user_auth_manager = KeycloakAuthManager(
+                self._get_auth_settings()
+            )
+        return self._user_auth_manager
+
+    def get_rest_auth_manager(self) -> KeycloakAuthManager:
+        if self._rest_auth_manager is None:
+            settings = self._get_auth_settings()
+            settings.client_id = (
+                self.config_system.get("rest_client_id")
+                or self.config_system.get("m2m_client_id")
+                or os.getenv("OZON_REST_CLIENT_ID", "")
+                or os.getenv("OZON_M2M_CLIENT_ID", "")
+                or settings.client_id
+            )
+            settings.client_secret = (
+                self.config_system.get("rest_client_secret")
+                or self.config_system.get("m2m_client_secret")
+                or os.getenv("OZON_REST_CLIENT_SECRET", "")
+                or os.getenv("OZON_M2M_CLIENT_SECRET", "")
+                or settings.client_secret
+            )
+            self._rest_auth_manager = KeycloakAuthManager(settings)
+        return self._rest_auth_manager
 
     def local_transaction_start(self):
         if not self._local_transaction_var.get():
@@ -415,7 +484,7 @@ class OzonEnvBase:
     async def add_model(
         self, model_name, virtual=False, data_model=""
     ) -> OzonModelBase:
-        if self.user_session.is_public:
+        if self.user_session and self.user_session.is_public:
             return None
         if model_name not in self.models:
             await self.orm.add_model(
@@ -442,7 +511,7 @@ class OzonEnvBase:
         local_model: dict = None,
         local_model_private: list = None,
         components: list[dict] = None,
-        sessions: list[dict] = None,
+        job_contexts: list[dict] = None,
         settings: dict = None,
     ):
         if local_model is None:
@@ -452,7 +521,7 @@ class OzonEnvBase:
         if db:
             self.db = db
             self.is_db_local = False
-        elif self.get_backend_interface() == "db":
+        elif self.db_settings:
             await self.connect_db()
         else:
             self.is_db_local = False
@@ -462,12 +531,13 @@ class OzonEnvBase:
         if isinstance(self.orm, OzonOrmRest):
             self.orm.load_local_definitions(
                 components=components,
-                sessions=sessions,
+                job_contexts=job_contexts,
                 settings=settings,
             )
         if local_model:
             for k, v in local_model.items():
-                self.orm.orm_models.append(k)
+                if k not in self.orm.orm_models:
+                    self.orm.orm_models.append(k)
                 self.orm.orm_static_models_map[k] = v
                 if k in local_model_private:
                     self.orm.add_private_model(k)
@@ -478,7 +548,7 @@ class OzonEnvBase:
         local_model: dict = None,
         local_model_private: list = None,
         components: list[dict] = None,
-        sessions: list[dict] = None,
+        job_contexts: list[dict] = None,
         settings: dict = None,
     ):
         if local_model is None:
@@ -490,7 +560,7 @@ class OzonEnvBase:
             local_model=local_model,
             local_model_private=local_model_private,
             components=components,
-            sessions=sessions,
+            job_contexts=job_contexts,
             settings=settings,
         )
         await self.orm.init_models()
@@ -500,6 +570,69 @@ class OzonEnvBase:
             await self.close_db()
         if self.use_cache:
             await stop_cache()
+
+    async def create_job_context(
+        self,
+        client_id: str,
+        expire_sec: int = 900,
+        job_key: str = "",
+        process_instance_key: str = "",
+    ) -> JobContext:
+        return await self.orm.create_job_context(
+            client_id=client_id,
+            expire_sec=expire_sec,
+            job_key=job_key,
+            process_instance_key=process_instance_key,
+        )
+
+    async def delete_job_context(self, job_token: str = "") -> bool:
+        return await self.orm.delete_job_context(
+            job_token or self.current_job_token
+        )
+
+    async def validate_job_context(
+        self,
+        job_token: str = "",
+        client_id: str = "",
+    ) -> JobContext:
+        job_token = job_token or self.current_job_token
+        job_context = await self.orm.validate_job_context(
+            job_token,
+            client_id=client_id,
+        )
+        self.current_job_token = job_token
+        self.current_job_context = job_context
+        return job_context
+
+    async def verify_job_context(
+        self,
+        job_token: str = "",
+        client_id: str = "",
+    ) -> JobContext:
+        return await self.validate_job_context(
+            job_token=job_token,
+            client_id=client_id,
+        )
+
+    async def init_api_job_context(
+        self,
+        m2m_token: str,
+        job_token: str,
+    ) -> JobContext:
+        job_context = await self.orm.init_job_context_auth(
+            m2m_token=m2m_token,
+            job_token=job_token,
+        )
+        self.current_job_token = job_token
+        self.current_job_context = job_context
+        self.user_session = self.orm.user_session
+        return job_context
+
+    async def job_done(self, job_token: str = "") -> bool:
+        return await self.delete_job_context(job_token=job_token)
+
+    async def clean_job_contexts(self) -> int:
+        return await self.orm.clean_job_contexts()
 
     async def make_app_session(
         self,
@@ -511,7 +644,7 @@ class OzonEnvBase:
         local_model={},
         local_model_private: list = None,
         components: list[dict] = None,
-        sessions: list[dict] = None,
+        job_contexts: list[dict] = None,
         settings: dict = None,
     ) -> BasicReturn:
         try:
@@ -524,7 +657,7 @@ class OzonEnvBase:
                 local_model=local_model,
                 local_model_private=local_model_private,
                 components=components,
-                sessions=sessions,
+                job_contexts=job_contexts,
                 settings=settings,
             )
             res = await self.session_app()
@@ -536,20 +669,16 @@ class OzonEnvBase:
 
     async def session_app(self) -> BasicReturn:
         self.session_is_api = self.params.get("session_is_api", False)
-        self.session_token = self.params.get("current_session_token")
-        await self.orm.init_session(self.session_token)
+        self.current_job_token = self.get_current_job_token()
+        await self.orm.init_auth(
+            self.get_current_token_input(),
+            job_token=self.current_job_token,
+        )
         if not self.upload_folder:
             self.upload_folder = self.orm.app_settings.upload_folder
         self.user_session = self.orm.user_session
-        if self.get_backend_interface() == "rest":
-            if not self.user_session and not (
-                self.session_token or self.params.get("current_session")
-            ):
-                return BasicReturn(fail=False, msg="Done", data={})
         if not self.user_session:
-            return self.fail_response(
-                _("Token %s not allowed") % self.session_token
-            )
+            return self.fail_response(_("Token not allowed"))
         return BasicReturn(fail=False, msg="Done", data={})
 
 
@@ -603,23 +732,25 @@ class OzonOrm:
         self.lang = env.lang
         self.db: Mongo = env.db
         self.config_system = env.config_system.copy()
-        self.user_session: Session = None
+        self.user_session: Optional[User] = None
         self.list_auto_models = []
         self.orm_models = [
             "component",
-            "session",
+            "user",
+            "jobcontext",
             "attachmenttrash",
             "settings",
         ]
         self.orm_static_models_map = {
             "component": Component,
-            "session": Session,
+            "user": User,
+            "jobcontext": JobContext,
             "attachmenttrash": AttachmentTrash,
             "settings": Settings,
         }
         self.dependencies = {}
         self.db_models = []
-        self.orm_sys_models = ["component", "session", "settings"]
+        self.orm_sys_models = ["component", "user", "jobcontext", "settings"]
         self.private_models = ["settings"]
         self.models_path = self.env.models_folder
         self.app_settings: Settings = None
@@ -635,15 +766,17 @@ class OzonOrm:
         self, model_name: str, model_class: BasicModel, private: bool = False
     ) -> OzonModelBase:
         _model_name = model_name.replace(" ", "").strip().lower()
-        self.orm_models.append(_model_name)
-        self.orm_static_models_map[model_name] = model_class
-        self.env.models[_model_name] = self.cls_model(
-            _model_name,
-            self,
-            static=model_class,
-        )
-        await self.env.models[_model_name].init_model()
-        await self.env.models[_model_name].init_unique()
+        if _model_name not in self.orm_models:
+            self.orm_models.append(_model_name)
+        self.orm_static_models_map[_model_name] = model_class
+        if _model_name not in self.env.models:
+            self.env.models[_model_name] = self.cls_model(
+                _model_name,
+                self,
+                static=model_class,
+            )
+            await self.env.models[_model_name].init_model()
+            await self.env.models[_model_name].init_unique()
         if private:
             self.add_private_model(_model_name)
         return self.env.models[_model_name]
@@ -739,6 +872,12 @@ class OzonOrm:
         query = {"rec_name": app_code}
         coll_settings = self.env.get_collection("settings")
         db_settings = await coll_settings.find_one(query)
+        if not db_settings:
+            db_settings = {
+                "rec_name": app_code or "",
+                "upload_folder": "/uploads",
+                "tz": "Europe/Rome",
+            }
         if db_settings.get("_id"):
             db_settings.pop("_id")
         db_settings = Settings.normalize_datetime_fields(self.tz, db_settings)
@@ -771,10 +910,300 @@ class OzonOrm:
             logger.error(f" Error create view {dbviewcfg.name} - {e}")
             return False
 
-    async def init_session(self, token):
-        self.user_session = await self.env.get("session").load(
-            {"token": token}
+    def _normalize_token_input(
+        self,
+        token_input,
+    ) -> tuple[str, str, dict[str, Any]]:
+        if isinstance(token_input, dict):
+            token_data = copy.deepcopy(token_input)
+            access_token = (
+                token_data.get("access_token")
+                or token_data.get("token")
+                or token_data.get("access")
+                or ""
+            )
+            refresh_token = token_data.get("refresh_token", "")
+        else:
+            access_token = str(token_input or "")
+            refresh_token = str(self.env.params.get("refresh_token", "") or "")
+            token_data = {"access_token": access_token}
+            if refresh_token:
+                token_data["refresh_token"] = refresh_token
+        access_token = KeycloakAuthManager.strip_bearer_token(access_token)
+        if access_token:
+            token_data["access_token"] = access_token
+        return access_token, refresh_token, token_data
+
+    async def load_user_by_uid(self, uid: str) -> Optional[User]:
+        if not uid or not self.db:
+            return None
+        data = await self.db.engine.get_collection("user").find_one(
+            {"uid": uid}
         )
+        if not data:
+            data = await self.db.engine.get_collection("user").find_one(
+                {"rec_name": uid}
+            )
+        if not data:
+            return None
+        data.pop("_id", None)
+        data = User.normalize_datetime_fields(self.tz, data)
+        return User(
+            **data,
+            exclude_none=True,
+            exclude_unset=True,
+            check_fields=False,
+        )
+
+    async def persist_user_token(
+        self,
+        uid: str,
+        token_data: dict[str, Any],
+    ):
+        if not uid or not token_data or not self.db:
+            return
+        await self.db.engine.get_collection("user").update_one(
+            {"uid": uid},
+            {
+                "$set": {
+                    "token": copy.deepcopy(token_data),
+                    "last_login": BasicModel.utc_now(),
+                }
+            },
+        )
+
+    def build_auth_user(
+        self,
+        verified: Any,
+        user_record: Optional[User] = None,
+        default_uid: str = "",
+    ) -> User:
+        claims = copy.deepcopy(verified.claims)
+        uid = verified.user_id or default_uid
+        data = user_record.get_dict_copy() if user_record else {}
+        if user_record:
+            full_name = (
+                getattr(user_record, "full_name", "")
+                or " ".join(
+                    [
+                        str(getattr(user_record, "nome", "") or "").strip(),
+                        str(getattr(user_record, "cognome", "") or "").strip(),
+                    ]
+                ).strip()
+            )
+        else:
+            full_name = claims.get("name", "")
+        full_name = full_name or claims.get("preferred_username", "") or uid
+        mail = (
+            getattr(user_record, "mail", "") if user_record else ""
+        ) or claims.get("email", "")
+        groups = (
+            getattr(user_record, "groups", []) if user_record else []
+        ) or claims.get("groups", [])
+        user = {
+            "uid": uid,
+            "full_name": full_name,
+            "mail": mail,
+            "tipo_personale": "",
+            "qualifica": "",
+        }
+        rec_name = getattr(user_record, "rec_name", "") if user_record else uid
+        data.update(
+            {
+                "rec_name": rec_name or uid,
+                "uid": uid,
+                "full_name": full_name,
+                "mail": mail,
+                "groups": groups,
+                "token": copy.deepcopy(verified.token_data),
+                "claims": claims,
+                "user": user,
+                "client_id": verified.client_id,
+            }
+        )
+        return User(
+            **data,
+            exclude_none=True,
+            exclude_unset=True,
+            check_fields=False,
+        )
+
+    async def authenticate_user_token(self, token_input) -> Any:
+        access_token, refresh_token, token_data = self._normalize_token_input(
+            token_input
+        )
+        if not access_token:
+            raise TokenVerificationError("Missing JWT token")
+        auth_manager = self.env.get_user_auth_manager()
+        try:
+            verified = await auth_manager.verify(access_token)
+        except TokenExpiredError:
+            if not refresh_token:
+                claims = auth_manager.decode_unverified(access_token)
+                user_record = await self.load_user_by_uid(
+                    auth_manager.extract_user_id(claims)
+                )
+                if user_record and isinstance(user_record.token, dict):
+                    refresh_token = user_record.token.get("refresh_token", "")
+                    if refresh_token:
+                        token_data["refresh_token"] = refresh_token
+            if not refresh_token:
+                raise
+            refreshed = await auth_manager.refresh(refresh_token)
+            token_data.update(refreshed)
+            access_token = refreshed.get("access_token", "")
+            if refreshed.get("refresh_token"):
+                token_data["refresh_token"] = refreshed["refresh_token"]
+            verified = await auth_manager.verify(access_token)
+        verified.access_token = access_token
+        verified.refresh_token = token_data.get("refresh_token", "")
+        token_data["access_token"] = access_token
+        verified.token_data = copy.deepcopy(token_data)
+        return verified
+
+    async def init_auth(self, token_input, job_token: str = ""):
+        verified = await self.authenticate_user_token(token_input)
+        user_record = await self.load_user_by_uid(verified.user_id)
+        if not user_record:
+            raise TokenVerificationError("User not found")
+        if not user_record.active:
+            raise TokenVerificationError("User is inactive")
+        self.user_session = self.build_auth_user(verified, user_record)
+        self.env.session_token = verified.access_token
+        self.env.current_token_data = copy.deepcopy(verified.token_data)
+        await self.persist_user_token(
+            self.user_session.uid, verified.token_data
+        )
+
+    async def load_job_context(self, job_token: str) -> Optional[JobContext]:
+        if not job_token or not self.db:
+            return None
+        data = await self.db.engine.get_collection("jobcontext").find_one(
+            {"job_token": job_token}
+        )
+        if not data:
+            return None
+        data.pop("_id", None)
+        data = JobContext.normalize_datetime_fields(self.tz, data)
+        return JobContext(
+            **data,
+            exclude_none=True,
+            exclude_unset=True,
+            check_fields=False,
+        )
+
+    async def validate_job_context(
+        self,
+        job_token: str,
+        client_id: str,
+    ) -> JobContext:
+        job_context = await self.load_job_context(job_token)
+        if not job_context:
+            raise TokenVerificationError("JobContext not found")
+        if (
+            not job_context.active
+            or job_context.expires_at <= BasicModel.utc_now()
+        ):
+            await self.delete_job_context(job_token)
+            raise TokenVerificationError("JobContext expired or inactive")
+        if client_id and job_context.client_id != client_id:
+            raise TokenVerificationError("JobContext client_id mismatch")
+        self.env.current_job_token = job_token
+        self.env.current_job_context = job_context
+        return job_context
+
+    async def authenticate_rest_token(self, m2m_token: str) -> Any:
+        m2m_token = KeycloakAuthManager.strip_bearer_token(m2m_token)
+        if not m2m_token:
+            raise TokenVerificationError("Missing M2M token")
+        auth_manager = self.env.get_rest_auth_manager()
+        expected_client_id = auth_manager.settings.client_id
+        verified = await auth_manager.verify(
+            m2m_token,
+            expected_client_id=expected_client_id,
+        )
+        verified.access_token = m2m_token
+        verified.token_data = {"access_token": m2m_token}
+        return verified
+
+    async def init_job_context_auth(
+        self,
+        m2m_token: str,
+        job_token: str,
+    ) -> JobContext:
+        verified = await self.authenticate_rest_token(m2m_token)
+        job_context = await self.validate_job_context(
+            job_token,
+            client_id=verified.client_id,
+        )
+        user_record = await self.load_user_by_uid(job_context.resolved_user_id)
+        if not user_record:
+            raise TokenVerificationError("JobContext user not found")
+        if not user_record.active:
+            raise TokenVerificationError("JobContext user is inactive")
+        self.user_session = user_record
+        self.env.user_session = user_record
+        self.env.session_token = verified.access_token
+        self.env.current_token_data = copy.deepcopy(verified.token_data)
+        return job_context
+
+    async def create_job_context(
+        self,
+        client_id: str,
+        expire_sec: int = 900,
+        job_key: str = "",
+        process_instance_key: str = "",
+    ) -> JobContext:
+        if not self.user_session:
+            raise TokenVerificationError("Authenticated user required")
+        if not client_id:
+            raise ValueError("client_id is required")
+        if not self.db:
+            raise ValueError(
+                "JobContext storage requires a configured database"
+            )
+        issued_at = BasicModel.utc_now()
+        expires_at = issued_at + timedelta(seconds=max(int(expire_sec), 1))
+        job_token = f"jctx_{secrets.token_urlsafe(32)}"
+        job_context = JobContext(
+            rec_name=job_token,
+            job_token=job_token,
+            client_id=client_id,
+            job_key=job_key or str(uuid.uuid4()),
+            process_instance_key=process_instance_key or str(uuid.uuid4()),
+            resolved_user_id=self.user_session.uid,
+            issued_at=issued_at,
+            expires_at=expires_at,
+            owner_uid=self.user_session.uid,
+            owner_name=self.user_session.full_name,
+            owner_mail=self.user_session.mail,
+            active=True,
+        )
+        data = job_context.get_dict_copy()
+        data.pop("id", None)
+        await self.db.engine.get_collection("jobcontext").insert_one(data)
+        return job_context
+
+    async def delete_job_context(self, job_token: str) -> bool:
+        if not job_token or not self.db:
+            return False
+        result = await self.db.engine.get_collection("jobcontext").delete_one(
+            {"job_token": job_token}
+        )
+        return result.deleted_count > 0
+
+    async def clean_job_contexts(self) -> int:
+        if not self.db:
+            return 0
+        result = await self.db.engine.get_collection("jobcontext").delete_many(
+            {
+                "$or": [
+                    {"active": False},
+                    {"expires_at": {"$lte": BasicModel.utc_now()}},
+                ]
+            }
+        )
+        return int(result.deleted_count)
 
     async def runcmd(self, cmd):
         # for security reason check the command
@@ -962,7 +1391,6 @@ class OzonOrm:
     async def init_model_and_write_code(
         self, model_name, data_model, virtual, schema, component
     ):
-        session_model = model_name == "session"
         mod = self.cls_model(
             model_name,
             self,
@@ -970,7 +1398,6 @@ class OzonOrm:
             static=self.orm_static_models_map.get(model_name, None),
             virtual=virtual,
             schema=schema,
-            session_model=session_model,
         )
         await mod.init_model()
         await self.make_local_model(mod, component.utc_now().isoformat())
@@ -1008,7 +1435,6 @@ class OzonOrm:
         if schema is None:
             schema = {}
         if model_name in list(self.orm_static_models_map.keys()) or virtual:
-            session_model = model_name == "session"
             if not data_model and schema:
                 data_model = schema.get("data_model", "")
             if (
@@ -1030,7 +1456,6 @@ class OzonOrm:
                 static=self.orm_static_models_map.get(model_name, None),
                 virtual=virtual,
                 schema=schema,
-                session_model=session_model,
             )
             await self.env.models[model_name].init_model()
             if not virtual:
@@ -1101,11 +1526,18 @@ def _match_local_domain(record: dict, domain: dict) -> bool:
 class OzonOrmRest(OzonOrm):
     def __init__(self, env: OzonEnvBase, cls_model=OzonModelBase):
         super().__init__(env, cls_model=cls_model)
-        self.local_only_models = {"component", "session", "settings"}
+        self.orm_models = [
+            name for name in self.orm_models if name != "jobcontext"
+        ]
+        self.orm_static_models_map.pop("jobcontext", None)
+        self.orm_sys_models = [
+            name for name in self.orm_sys_models if name != "jobcontext"
+        ]
+        self.local_only_models = {"component", "settings"}
         self.local_store = {
             "component": [],
-            "session": [],
             "settings": [],
+            "jobcontext": [],
         }
         self.rest_client = OzonDataApiClient.create(
             base_url=self.config_system.get(
@@ -1119,6 +1551,45 @@ class OzonOrmRest(OzonOrm):
             token=self.config_system.get(
                 "rest_token",
                 os.getenv("OZON_REST_TOKEN", ""),
+            ),
+            job_token=self.env.get_current_job_token(),
+            oauth_url=self.config_system.get(
+                "rest_oauth_url",
+                self.config_system.get(
+                    "oauth_url", os.getenv("OZON_OAUTH_URL", "")
+                ),
+            ),
+            oauth_client_id=self.config_system.get(
+                "rest_client_id",
+                self.config_system.get(
+                    "m2m_client_id",
+                    os.getenv(
+                        "OZON_REST_CLIENT_ID",
+                        os.getenv(
+                            "OZON_M2M_CLIENT_ID",
+                            os.getenv("OZON_CLIENT_ID", ""),
+                        ),
+                    ),
+                ),
+            ),
+            oauth_client_secret=self.config_system.get(
+                "rest_client_secret",
+                self.config_system.get(
+                    "m2m_client_secret",
+                    os.getenv(
+                        "OZON_REST_CLIENT_SECRET",
+                        os.getenv(
+                            "OZON_M2M_CLIENT_SECRET",
+                            os.getenv("OZON_CLIENT_SECRET", ""),
+                        ),
+                    ),
+                ),
+            ),
+            token_audience=self.config_system.get(
+                "rest_token_audience",
+                self.config_system.get(
+                    "token_audience", os.getenv("OZON_TOKEN_AUDIENCE", "")
+                ),
             ),
         )
 
@@ -1134,20 +1605,15 @@ class OzonOrmRest(OzonOrm):
     def load_local_definitions(
         self,
         components: list[dict] = None,
-        sessions: list[dict] = None,
+        job_contexts: list[dict] = None,
         settings: dict = None,
     ):
         if components is None:
             components = self.config_system.get("components", [])
-        if sessions is None:
-            sessions = self.config_system.get("sessions", [])
         if settings is None:
             settings = self.config_system.get("settings")
         self.local_store["component"] = [
             copy.deepcopy(item) for item in (components or [])
-        ]
-        self.local_store["session"] = [
-            copy.deepcopy(item) for item in (sessions or [])
         ]
         if settings:
             self.local_store["settings"] = [copy.deepcopy(settings)]
@@ -1233,14 +1699,16 @@ class OzonOrmRest(OzonOrm):
         self, model_name: str, model_class: BasicModel, private: bool = False
     ) -> OzonModelBase:
         _model_name = model_name.replace(" ", "").strip().lower()
-        self.orm_models.append(_model_name)
+        if _model_name not in self.orm_models:
+            self.orm_models.append(_model_name)
         self.orm_static_models_map[_model_name] = model_class
-        self.env.models[_model_name] = self.cls_model(
-            _model_name,
-            self,
-            static=model_class,
-        )
-        await self.env.models[_model_name].init_model()
+        if _model_name not in self.env.models:
+            self.env.models[_model_name] = self.cls_model(
+                _model_name,
+                self,
+                static=model_class,
+            )
+            await self.env.models[_model_name].init_model()
         if private:
             self.add_private_model(_model_name)
         return self.env.models[_model_name]
@@ -1255,7 +1723,6 @@ class OzonOrmRest(OzonOrm):
             data_model=schema.get("data_model", ""),
             virtual=False,
             schema=schema,
-            session_model=model_name == "session",
         )
         await mod.init_model()
         await self.make_local_model(mod, BasicModel.utc_now().isoformat())
@@ -1308,25 +1775,42 @@ class OzonOrmRest(OzonOrm):
                 )
         await self.build_reverse_dependencies()
 
-    async def init_session(self, token):
-        session_data = self.env.params.get("current_session")
-        if not session_data and token:
-            for item in self.get_local_store("session"):
-                if item.get("token") == token:
-                    session_data = copy.deepcopy(item)
-                    break
-        if token:
-            self.rest_client.set_token(token)
-        if not session_data:
-            self.user_session = None
-            return
-        session_data = Session.normalize_datetime_fields(self.tz, session_data)
-        self.user_session = Session(
-            **session_data,
-            exclude_none=True,
-            exclude_unset=True,
-            check_fields=False,
+    async def init_auth(self, token_input, job_token: str = ""):
+        if not job_token:
+            raise TokenVerificationError("Missing job_token")
+        access_token, _refresh_token, token_data = self._normalize_token_input(
+            token_input
         )
+        current_user = self.env.params.get("current_user") or {}
+        if not isinstance(current_user, dict):
+            current_user = {}
+        uid = (
+            current_user.get("uid")
+            or current_user.get("rec_name")
+            or f"jobcontext:{job_token}"
+        )
+        full_name = current_user.get("full_name") or current_user.get(
+            "name", ""
+        )
+        mail = current_user.get("mail") or current_user.get("email", "")
+        self.user_session = User(
+            rec_name=current_user.get("rec_name") or uid,
+            uid=uid,
+            full_name=full_name,
+            mail=mail,
+            is_bot=True,
+            token=copy.deepcopy(token_data),
+            user={
+                "uid": uid,
+                "full_name": full_name,
+                "mail": mail,
+            },
+            client_id=self.rest_client.oauth_client_id,
+        )
+        self.env.session_token = access_token
+        self.env.current_token_data = copy.deepcopy(token_data)
+        self.env.current_job_token = job_token
+        self.rest_client.set_job_token(job_token)
 
     async def add_model(self, model_name, virtual=False, data_model=""):
         schema = {}
@@ -1348,7 +1832,6 @@ class OzonOrmRest(OzonOrm):
         if schema is None:
             schema = {}
         if model_name in list(self.orm_static_models_map.keys()) or virtual:
-            session_model = model_name == "session"
             if not data_model and schema:
                 data_model = schema.get("data_model", "")
             if (
@@ -1370,7 +1853,6 @@ class OzonOrmRest(OzonOrm):
                 static=self.orm_static_models_map.get(model_name, None),
                 virtual=virtual,
                 schema=schema,
-                session_model=session_model,
             )
             await self.env.models[model_name].init_model()
 
@@ -1593,7 +2075,7 @@ class OzonModelRestBase(OzonModelBase):
     ) -> Union[None, CoreModel]:
         self.init_status()
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data={})
             return None
         if self._is_local_only_model():
@@ -1632,7 +2114,7 @@ class OzonModelRestBase(OzonModelBase):
     ) -> Union[None, CoreModel]:
         self.init_status()
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data=record.get_dict_json())
             return None
         if self._is_local_only_model():
@@ -1640,7 +2122,7 @@ class OzonModelRestBase(OzonModelBase):
             record_data = record.get_dict_json()
             record_data["update_datetime"] = record.utc_now().isoformat()
             if self.user_session:
-                record_data["update_uid"] = self.user_session.get("user.uid")
+                record_data["update_uid"] = self._user_uid(self.user_session)
             for idx, item in enumerate(records):
                 if item.get("rec_name") == record.rec_name:
                     records[idx] = record_data
@@ -1667,7 +2149,7 @@ class OzonModelRestBase(OzonModelBase):
     async def remove(self, record: CoreModel) -> bool:
         self.init_status()
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data=record.get_dict_json())
             return False
         if self._is_local_only_model():
@@ -1800,7 +2282,6 @@ class OzonModelRestBase(OzonModelBase):
                 rec_data,
                 self.virtual,
                 self.data_model,
-                self.is_session_model,
                 self.tz,
                 self.virtual_fields_parser,
             )
@@ -1813,7 +2294,6 @@ class OzonModel(OzonModelBase):
         model_name,
         orm: OzonOrm,
         data_model="",
-        session_model=False,
         virtual=False,
         static: CoreModel = None,
         schema={},
@@ -1824,13 +2304,12 @@ class OzonModel(OzonModelBase):
         self.db: Mongo = orm.env.db
         self.mm_from_cache = False
         self.use_cache = False
-        self.private_models = ["session", "settings"]
+        self.private_models = ["settings"]
         self.service: ModelService = None
         super(OzonModel, self).__init__(
             model_name=model_name,
             setting_app=self.setting_app,
             data_model=data_model,
-            session_model=session_model,
             virtual=virtual,
             static=static,
             schema=schema,
@@ -1843,7 +2322,7 @@ class OzonModel(OzonModelBase):
     def init_status(self):
         if self.user_session and self.user_session.is_public:
             if self.name.lower() in self.orm.private_models:
-                raise SessionException(detail="Permission Denied")
+                raise OzonPermissionError(detail="Permission Denied")
         super().init_status()
 
     def chk_write_permission(self) -> bool:
@@ -1858,7 +2337,7 @@ class OzonModel(OzonModelBase):
     ) -> Union[None, CoreModel]:
         self.init_status()
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data=record.get_dict_json())
             return None
         if self._transaction:
@@ -1883,7 +2362,7 @@ class OzonModel(OzonModelBase):
     async def remove(self, record: CoreModel) -> bool:
         self.init_status()
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data=record.get_dict_json())
             return False
         if self._transaction:
@@ -1899,7 +2378,6 @@ class OzonModelRest(OzonModelRestBase):
         model_name,
         orm: OzonOrmRest,
         data_model="",
-        session_model=False,
         virtual=False,
         static: CoreModel = None,
         schema={},
@@ -1910,13 +2388,12 @@ class OzonModelRest(OzonModelRestBase):
         self.db = None
         self.mm_from_cache = False
         self.use_cache = False
-        self.private_models = ["session", "settings"]
+        self.private_models = ["settings"]
         self.service: ModelService = None
         super(OzonModelRest, self).__init__(
             model_name=model_name,
             setting_app=self.setting_app,
             data_model=data_model,
-            session_model=session_model,
             virtual=virtual,
             static=static,
             schema=schema,
@@ -1929,7 +2406,7 @@ class OzonModelRest(OzonModelRestBase):
     def init_status(self):
         if self.user_session and self.user_session.is_public:
             if self.name.lower() in self.orm.private_models:
-                raise SessionException(detail="Permission Denied")
+                raise OzonPermissionError(detail="Permission Denied")
         super().init_status()
 
     def chk_write_permission(self) -> bool:

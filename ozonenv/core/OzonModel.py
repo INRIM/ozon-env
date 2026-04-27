@@ -26,7 +26,7 @@ from ozonenv.core.BaseModels import (
 from ozonenv.core.DateEngine import DateEngine
 from ozonenv.core.ModelMaker import ModelMaker
 from ozonenv.core.ModelService import ModelService
-from ozonenv.core.exceptions import SessionException
+from ozonenv.core.exceptions import OzonPermissionError
 from ozonenv.core.i18n import _
 from ozonenv.core.utils import (
     is_json,
@@ -44,7 +44,6 @@ class OzonMBase:
         model_name,
         setting_app: Settings = None,
         data_model: str = "",
-        session_model: BasicModel = False,
         virtual=False,
         static: BasicModel = None,
         schema: dict = None,
@@ -55,8 +54,6 @@ class OzonMBase:
         :param setting_app: base App settings
         :param data_model: the name of data model in case of virtual model
                            use this collection to store o retreive data.
-        :param session_model: True/False if the model is Session or
-                              a subclass of Session Model
         :param virtual: True/False if is virtual_model create a model from a
                         generic data dictionary, without the schema
         :param static: ModelClass, if the model is in python Class you need to
@@ -79,8 +76,6 @@ class OzonMBase:
         else:
             self.data_model = data_model or model_name
         self.schema = copy.deepcopy(schema)
-        self.session_model = session_model
-        self.is_session_model = session_model
         self.model_meta: ModelMetaclass = None
         self.modelr: CoreModel = None
         self.mm: ModelMaker = None
@@ -298,7 +293,6 @@ class OzonMBase:
         data,
         virtual,
         data_model,
-        is_session_model,
         tz,
         virtual_fields_parser,
         as_virtual=False,
@@ -325,7 +319,7 @@ class OzonMBase:
             mm.from_data_dict(data)
 
             modelr = mm.new()
-        if not is_session_model and not modelr.rec_name:
+        if not modelr.rec_name:
             modelr.rec_name = f"{data_model}.{modelr.id}"
         return modelr, mm
 
@@ -337,7 +331,6 @@ class OzonMBase:
             data,
             self.virtual,
             self.data_model,
-            self.is_session_model,
             self.tz,
             self.virtual_fields_parser,
             as_virtual=as_virtual,
@@ -434,17 +427,86 @@ class OzonModelBase(OzonMBase):
         )
         return dat
 
+    @classmethod
+    def _read_user_field(cls, user: Any, key: str, default=None):
+        if user is None:
+            return default
+        if isinstance(user, dict):
+            value = user
+            for part in key.split("."):
+                if not isinstance(value, dict):
+                    return default
+                value = value.get(part)
+                if value is None:
+                    return default
+            return value
+        if hasattr(user, "get"):
+            try:
+                value = user.get(key, None)
+                if value is not None:
+                    return value
+            except TypeError:
+                pass
+        value = user
+        for part in key.split("."):
+            if not hasattr(value, part):
+                return default
+            value = getattr(value, part)
+            if value is None:
+                return default
+        return value
+
+    @classmethod
+    def _user_value(cls, user: Any, keys: list[str], default=None):
+        for key in keys:
+            value = cls._read_user_field(user, key, None)
+            if value not in [None, ""]:
+                return value
+        return default
+
+    @classmethod
+    def _user_uid(cls, user: Any) -> str:
+        return cls._user_value(user, ["uid", "user.uid"], default="")
+
     def set_user_data(self, record: CoreModel, user: dict = None) -> CoreModel:
         if user is None:
             user = {}
-        record.owner_uid = user.get("user.uid")
-        record.owner_name = user.get("user.full_name", "")
-        record.owner_mail = user.get("user.mail", "")
-        record.owner_sector = user.get("sector", "")
-        record.owner_sector_id = user.get("sector_id", 0)
-        record.owner_personal_type = user.get("user.tipo_personale", "")
-        record.owner_job_title = user.get("user.qualifica", "")
-        record.owner_function = user.get("function", "")
+        record.owner_uid = self._user_uid(user)
+        record.owner_name = self._user_value(
+            user,
+            ["full_name", "user.full_name", "nome"],
+            default="",
+        )
+        record.owner_mail = self._user_value(
+            user,
+            ["mail", "user.mail"],
+            default="",
+        )
+        record.owner_sector = self._user_value(
+            user,
+            ["sector"],
+            default="",
+        )
+        record.owner_sector_id = self._user_value(
+            user,
+            ["sector_id"],
+            default=0,
+        )
+        record.owner_personal_type = self._user_value(
+            user,
+            ["user.tipo_personale"],
+            default="",
+        )
+        record.owner_job_title = self._user_value(
+            user,
+            ["user.qualifica"],
+            default="",
+        )
+        record.owner_function = self._user_value(
+            user,
+            ["function"],
+            default="",
+        )
         return record
 
     async def init_unique(self):
@@ -653,14 +715,13 @@ class OzonModelBase(OzonMBase):
         if data_value is None:
             data_value = {}
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data={})
             return None
         if not self.chk_write_permission():
-            raise SessionException(detail="Session is Readonly")
+            raise OzonPermissionError(detail="User is Readonly")
         if not data and rec_name or rec_name and self.virtual:
-            if not self.is_session_model:
-                data["rec_name"] = rec_name
+            data["rec_name"] = rec_name
         if not self.virtual:
             # data = self.decode_datetime(data)
             data = self.model.normalize_datetime_fields(self.tz, data)
@@ -720,11 +781,11 @@ class OzonModelBase(OzonMBase):
             self.error_status(_("Cannot update a virtual object"), data)
             return None
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data={})
             return None
         if not self.chk_write_permission():
-            raise SessionException(detail="Session is Readonly")
+            raise OzonPermissionError(detail="User is Readonly")
         if not data and rec_name or rec_name and self.virtual:
             data["rec_name"] = rec_name
         if not data.get("rec_name"):
@@ -756,7 +817,7 @@ class OzonModelBase(OzonMBase):
     ) -> Union[None, CoreModel]:
         self.init_status()
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data={})
             return None
         if self.virtual and not self.data_model:
@@ -842,15 +903,12 @@ class OzonModelBase(OzonMBase):
         self.init_status()
         domain = traverse_and_convertd_datetime(domain)
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data={})
             return None
-        if self.is_session_model or self.virtual:
+        if self.virtual:
             self.error_status(
-                _(
-                    "Duplicate session instance "
-                    "or virtual model is not allowed"
-                ),
+                _("Duplicate virtual model is not allowed"),
                 domain,
             )
             return None
@@ -884,7 +942,7 @@ class OzonModelBase(OzonMBase):
     ) -> Union[None, CoreModel]:
         self.init_status()
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data=record.get_dict_json())
             return None
         if self.virtual and not self.data_model:
@@ -897,7 +955,7 @@ class OzonModelBase(OzonMBase):
             original = await self.load(record.rec_name_domain())
             if not self.virtual:
                 data = record.get_dict()
-                data["update_uid"] = self.orm.user_session.get("user.uid")
+                data["update_uid"] = self._user_uid(self.orm.user_session)
                 data["update_datetime"] = record.utc_now()
                 data = self.model.normalize_datetime_fields(self.tz, data)
 
@@ -973,7 +1031,7 @@ class OzonModelBase(OzonMBase):
     async def remove(self, record: CoreModel) -> bool:
         self.init_status()
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data=record.get_dict_json())
             return None
         if self.virtual and not self.data_model:
@@ -989,7 +1047,7 @@ class OzonModelBase(OzonMBase):
         self.init_status()
         domain = traverse_and_convertd_datetime(domain)
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data={})
             return None
         if self.virtual and not self.data_model:
@@ -1046,7 +1104,6 @@ class OzonModelBase(OzonMBase):
                 rec_data,
                 self.virtual,
                 self.data_model,
-                self.is_session_model,
                 self.tz,
                 self.virtual_fields_parser,
             )
@@ -1071,7 +1128,6 @@ class OzonModelBase(OzonMBase):
                 rec_data,
                 self.virtual,
                 self.data_model,
-                self.is_session_model,
                 self.tz,
                 self.virtual_fields_parser,
             )
@@ -1139,7 +1195,6 @@ class OzonModelBase(OzonMBase):
                 rec_data,
                 self.virtual,
                 self.data_model,
-                self.is_session_model,
                 self.tz,
                 self.virtual_fields_parser,
             )
@@ -1180,7 +1235,6 @@ class OzonModelBase(OzonMBase):
                     rec,
                     effective_virtual,
                     self.data_model,
-                    self.is_session_model,
                     self.tz,
                     self.virtual_fields_parser,
                 )
@@ -1194,7 +1248,6 @@ class OzonModelBase(OzonMBase):
                     item,
                     effective_virtual,
                     self.data_model,
-                    self.is_session_model,
                     self.tz,
                     self.virtual_fields_parser,
                 )
@@ -1460,7 +1513,7 @@ class OzonModelBase(OzonMBase):
     async def set_to_delete(self, record: CoreModel) -> Union[None, CoreModel]:
         self.init_status()
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data=record.get_dict_json())
             return None
         if self.virtual:
@@ -1476,7 +1529,7 @@ class OzonModelBase(OzonMBase):
     async def set_active(self, record: CoreModel) -> Union[None, CoreModel]:
         self.init_status()
         if not self.chk_write_permission():
-            msg = _("Session is Readonly")
+            msg = _("User is Readonly")
             self.error_status(msg, data=record.get_dict_json())
             return None
         if self.virtual:

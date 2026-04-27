@@ -41,7 +41,7 @@ msgid "Validation Error  %s "
 msgstr ""
 
 #: /Users/archetipo/devel/microservices/dev_libs/ozon-env/ozonenv/core/OzonModel.py:322
-msgid "Duplicate session instance or virtual model is not allowed"
+msgid "Duplicate virtual model is not allowed"
 msgstr ""
 
 #: /Users/archetipo/devel/microservices/dev_libs/ozon-env/ozonenv/core/OzonModel.py:355
@@ -72,4 +72,3 @@ msgstr ""
 #, python-format
 msgid "Token %s not allowed"
 msgstr ""
-

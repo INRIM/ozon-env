@@ -26,101 +26,222 @@ async def test_make_form_data():
 async def test_make_form_schema():
     schema = await get_formio_schema()
     formio_data_json = await get_formio_data()
-    test_2 = ModelMaker("component",tz="Europe/Rome")
+    test_2 = ModelMaker("component", tz="Europe/Rome")
     test_2.from_formio(schema)
     assert test_2.model_name == "component"
     assert isinstance(test_2.model, ModelMetaclass) is True
     assert test_2.unique_fields == ["rec_name", "firstName"]
     assert test_2.required_fields == ["rec_name", "firstName"]
     assert test_2.components_logic == []
-    assert test_2.datetime_fields == {'update_datetime': {'transform': {'type': 'datetime'}},
-                                      'create_datetime': {'transform': {'type': 'datetime'}},
-                                      'birthdate': {'ctype': 'datetime', 'disabled': False, 'readonly': False,
-                                                    'hidden': False, 'required': False, 'unique': False,
-                                                    'component': 'Component', 'calculateServer': '',
-                                                    'action_type': False, 'no_clone': False,
-                                                    'transform': {'type': 'date'}, 'datetime': False, 'min': None,
-                                                    'max': None, 'time': False, 'date': True},
-                                      'appointmentDateTime': {'ctype': 'datetime', 'disabled': False, 'readonly': False,
-                                                              'hidden': False, 'required': False, 'unique': False,
-                                                              'component': 'Component', 'calculateServer': '',
-                                                              'action_type': False, 'no_clone': False,
-                                                              'transform': {'type': 'datetime'}, 'datetime': True,
-                                                              'min': None, 'max': None, 'time': True, 'date': True},
-                                      'appointmentDateTime1': {'ctype': 'datetime', 'disabled': False,
-                                                               'readonly': False, 'hidden': False, 'required': False,
-                                                               'unique': False, 'component': 'Component',
-                                                               'calculateServer': '', 'action_type': False,
-                                                               'no_clone': False, 'transform': {'type': 'datetime'},
-                                                               'datetime': True, 'min': None, 'max': None, 'time': True,
-                                                               'date': True}}
-    assert test_2.tranform_data_value == {'birthdate': {'type': 'date'}, 'appointmentDateTime': {'type': 'datetime'},
-                                          'appointmentDateTime1': {'type': 'datetime'}}
-    assert test_2.nested_datetime_fields == {'dataGrid': {'update_datetime': {'transform': {'type': 'datetime'}},
-                                                          'create_datetime': {'transform': {'type': 'datetime'}},
-                                                          'birthdateDg': {'ctype': 'datetime', 'disabled': False,
-                                                                          'readonly': False, 'hidden': False,
-                                                                          'required': False, 'unique': False,
-                                                                          'component': 'Component',
-                                                                          'calculateServer': '', 'action_type': False,
-                                                                          'no_clone': False,
-                                                                          'transform': {'type': 'date'},
-                                                                          'datetime': False, 'min': None, 'max': None,
-                                                                          'time': False, 'date': True},
-                                                          'appointmentDateTimeDg': {'ctype': 'datetime',
-                                                                                    'disabled': False,
-                                                                                    'readonly': False, 'hidden': False,
-                                                                                    'required': False, 'unique': False,
-                                                                                    'component': 'Component',
-                                                                                    'calculateServer': '',
-                                                                                    'action_type': False,
-                                                                                    'no_clone': False,
-                                                                                    'transform': {'type': 'datetime'},
-                                                                                    'datetime': True, 'min': None,
-                                                                                    'max': None, 'time': True,
-                                                                                    'date': True}},
-                                             'dataGrid2': {'update_datetime': {'transform': {'type': 'datetime'}},
-                                                           'create_datetime': {'transform': {'type': 'datetime'}},
-                                                           'birthdateDg': {'ctype': 'datetime', 'disabled': False,
-                                                                           'readonly': False, 'hidden': False,
-                                                                           'required': False, 'unique': False,
-                                                                           'component': 'Component',
-                                                                           'calculateServer': '', 'action_type': False,
-                                                                           'no_clone': False,
-                                                                           'transform': {'type': 'date'},
-                                                                           'datetime': False, 'min': None, 'max': None,
-                                                                           'time': False, 'date': True},
-                                                           'appointmentDateTimeDg': {'ctype': 'datetime',
-                                                                                     'disabled': False,
-                                                                                     'readonly': False, 'hidden': False,
-                                                                                     'required': False, 'unique': False,
-                                                                                     'component': 'Component',
-                                                                                     'calculateServer': '',
-                                                                                     'action_type': False,
-                                                                                     'no_clone': False,
-                                                                                     'transform': {'type': 'datetime'},
-                                                                                     'datetime': True, 'min': None,
-                                                                                     'max': None, 'time': True,
-                                                                                     'date': True}}}
+    assert test_2.datetime_fields == {
+        'update_datetime': {'transform': {'type': 'datetime'}},
+        'create_datetime': {'transform': {'type': 'datetime'}},
+        'birthdate': {
+            'ctype': 'datetime',
+            'disabled': False,
+            'readonly': False,
+            'hidden': False,
+            'required': False,
+            'unique': False,
+            'component': 'Component',
+            'calculateServer': '',
+            'action_type': False,
+            'no_clone': False,
+            'transform': {'type': 'date'},
+            'datetime': False,
+            'min': None,
+            'max': None,
+            'time': False,
+            'date': True,
+        },
+        'appointmentDateTime': {
+            'ctype': 'datetime',
+            'disabled': False,
+            'readonly': False,
+            'hidden': False,
+            'required': False,
+            'unique': False,
+            'component': 'Component',
+            'calculateServer': '',
+            'action_type': False,
+            'no_clone': False,
+            'transform': {'type': 'datetime'},
+            'datetime': True,
+            'min': None,
+            'max': None,
+            'time': True,
+            'date': True,
+        },
+        'appointmentDateTime1': {
+            'ctype': 'datetime',
+            'disabled': False,
+            'readonly': False,
+            'hidden': False,
+            'required': False,
+            'unique': False,
+            'component': 'Component',
+            'calculateServer': '',
+            'action_type': False,
+            'no_clone': False,
+            'transform': {'type': 'datetime'},
+            'datetime': True,
+            'min': None,
+            'max': None,
+            'time': True,
+            'date': True,
+        },
+    }
+    assert test_2.tranform_data_value == {
+        'birthdate': {'type': 'date'},
+        'appointmentDateTime': {'type': 'datetime'},
+        'appointmentDateTime1': {'type': 'datetime'},
+    }
+    assert test_2.nested_datetime_fields == {
+        'dataGrid': {
+            'update_datetime': {'transform': {'type': 'datetime'}},
+            'create_datetime': {'transform': {'type': 'datetime'}},
+            'birthdateDg': {
+                'ctype': 'datetime',
+                'disabled': False,
+                'readonly': False,
+                'hidden': False,
+                'required': False,
+                'unique': False,
+                'component': 'Component',
+                'calculateServer': '',
+                'action_type': False,
+                'no_clone': False,
+                'transform': {'type': 'date'},
+                'datetime': False,
+                'min': None,
+                'max': None,
+                'time': False,
+                'date': True,
+            },
+            'appointmentDateTimeDg': {
+                'ctype': 'datetime',
+                'disabled': False,
+                'readonly': False,
+                'hidden': False,
+                'required': False,
+                'unique': False,
+                'component': 'Component',
+                'calculateServer': '',
+                'action_type': False,
+                'no_clone': False,
+                'transform': {'type': 'datetime'},
+                'datetime': True,
+                'min': None,
+                'max': None,
+                'time': True,
+                'date': True,
+            },
+        },
+        'dataGrid2': {
+            'update_datetime': {'transform': {'type': 'datetime'}},
+            'create_datetime': {'transform': {'type': 'datetime'}},
+            'birthdateDg': {
+                'ctype': 'datetime',
+                'disabled': False,
+                'readonly': False,
+                'hidden': False,
+                'required': False,
+                'unique': False,
+                'component': 'Component',
+                'calculateServer': '',
+                'action_type': False,
+                'no_clone': False,
+                'transform': {'type': 'date'},
+                'datetime': False,
+                'min': None,
+                'max': None,
+                'time': False,
+                'date': True,
+            },
+            'appointmentDateTimeDg': {
+                'ctype': 'datetime',
+                'disabled': False,
+                'readonly': False,
+                'hidden': False,
+                'required': False,
+                'unique': False,
+                'component': 'Component',
+                'calculateServer': '',
+                'action_type': False,
+                'no_clone': False,
+                'transform': {'type': 'datetime'},
+                'datetime': True,
+                'min': None,
+                'max': None,
+                'time': True,
+                'date': True,
+            },
+        },
+    }
     assert test_2.nested_transform_data_value == {
-        'dataGrid': {'birthdateDg': {'type': 'date'}, 'appointmentDateTimeDg': {'type': 'datetime'}},
-        'dataGrid2': {'birthdateDg': {'type': 'date'}, 'appointmentDateTimeDg': {'type': 'datetime'}}}
+        'dataGrid': {
+            'birthdateDg': {'type': 'date'},
+            'appointmentDateTimeDg': {'type': 'datetime'},
+        },
+        'dataGrid2': {
+            'birthdateDg': {'type': 'date'},
+            'appointmentDateTimeDg': {'type': 'datetime'},
+        },
+    }
     assert test_2.select_fields == {
-        'favouriteSeason': {'multi': False, 'default': None, 'properties': {}, 'src': 'values', 'resource_id': ''},
-        'favouriteFood': {'multi': True, 'default': None, 'properties': {}, 'src': 'values', 'resource_id': ''},
-        'favouriteSeasonDg': {'multi': False, 'default': None, 'properties': {}, 'src': 'values', 'resource_id': ''},
-        'post_id': {'default': '', 'header_key': '', 'header_value_key': '', 'multi': False,
-                    'properties': {'id': 'id', 'label': 'title'}, 'src': 'url',
-                    'url': 'https://jsonplaceholder.typicode.com/posts'}}
+        'favouriteSeason': {
+            'multi': False,
+            'default': None,
+            'properties': {},
+            'src': 'values',
+            'resource_id': '',
+        },
+        'favouriteFood': {
+            'multi': True,
+            'default': None,
+            'properties': {},
+            'src': 'values',
+            'resource_id': '',
+        },
+        'favouriteSeasonDg': {
+            'multi': False,
+            'default': None,
+            'properties': {},
+            'src': 'values',
+            'resource_id': '',
+        },
+        'post_id': {
+            'default': '',
+            'header_key': '',
+            'header_value_key': '',
+            'multi': False,
+            'properties': {'id': 'id', 'label': 'title'},
+            'src': 'url',
+            'url': 'https://jsonplaceholder.typicode.com/posts',
+        },
+    }
 
     assert test_2.select_options == {
-        'favouriteSeason': [{'label': 'Spring', 'value': 'spring'}, {'label': 'Summer', 'value': 'summer'},
-                            {'label': 'Autumn', 'value': 'autumn'}, {'label': 'Winter', 'value': 'winter'}],
-        'favouriteFood': [{'label': 'Italian', 'value': 'italian'}, {'label': 'Mexican', 'value': 'mexican'},
-                          {'label': 'Chinese', 'value': 'chinese'}, {'label': 'Fastfood', 'value': 'fastfood'}],
-        'favouriteSeasonDg': [{'label': 'Spring', 'value': 'spring'}, {'label': 'Summer', 'value': 'summer'},
-                              {'label': 'Autumn', 'value': 'autumn'}, {'label': 'Winter', 'value': 'winter'}],
-        'post_id': {}}
+        'favouriteSeason': [
+            {'label': 'Spring', 'value': 'spring'},
+            {'label': 'Summer', 'value': 'summer'},
+            {'label': 'Autumn', 'value': 'autumn'},
+            {'label': 'Winter', 'value': 'winter'},
+        ],
+        'favouriteFood': [
+            {'label': 'Italian', 'value': 'italian'},
+            {'label': 'Mexican', 'value': 'mexican'},
+            {'label': 'Chinese', 'value': 'chinese'},
+            {'label': 'Fastfood', 'value': 'fastfood'},
+        ],
+        'favouriteSeasonDg': [
+            {'label': 'Spring', 'value': 'spring'},
+            {'label': 'Summer', 'value': 'summer'},
+            {'label': 'Autumn', 'value': 'autumn'},
+            {'label': 'Winter', 'value': 'winter'},
+        ],
+        'post_id': {},
+    }
     assert "rec_name" in test_2.no_clone_field_keys
     test_2.new({"rec_name": "test"})
     assert isinstance(test_2.instance, MainModel) is True
@@ -132,14 +253,26 @@ async def test_make_form_schema():
     assert test_2.instance.email == 'name@company.it'
     assert len(test_2.instance.dataGrid) == 2
     assert test_2.instance.dataGrid[0].textField == 'abc'
-    assert test_2.instance.dataGrid[0].birthdateDg == BasicModel.iso_to_utc("1987-12-17T00:00:00Z")
-    assert test_2.instance.dataGrid[0].appointmentDateTimeDg == BasicModel.default_datetime()
+    assert test_2.instance.dataGrid[0].birthdateDg == BasicModel.iso_to_utc(
+        "1987-12-17T00:00:00Z"
+    )
+    assert (
+        test_2.instance.dataGrid[0].appointmentDateTimeDg
+        == BasicModel.default_datetime()
+    )
     assert test_2.instance.dataGrid[1].textField == 'def'
-    assert test_2.instance.dataGrid[1].birthdateDg == BasicModel.iso_to_utc("1990-01-01T00:00:00Z")
-    assert test_2.instance.dataGrid[1].appointmentDateTimeDg == BasicModel.default_datetime()
+    assert test_2.instance.dataGrid[1].birthdateDg == BasicModel.iso_to_utc(
+        "1990-01-01T00:00:00Z"
+    )
+    assert (
+        test_2.instance.dataGrid[1].appointmentDateTimeDg
+        == BasicModel.default_datetime()
+    )
     assert test_2.instance.dataGrid2 == []
-    assert test_2.instance.survey[
-               'howWouldYouRateTheFormIoPlatform'] == 'excellent'
+    assert (
+        test_2.instance.survey['howWouldYouRateTheFormIoPlatform']
+        == 'excellent'
+    )
 
 
 @pytestmark
@@ -151,9 +284,14 @@ async def test_make_form_cond_schema():
     assert test_2.model_name == "component"
     test_2.new(formio_data_json)
     assert test_2.instance.username == "wrong"
-    assert test_2.realted_fields_logic == {'username': ['secret'],
-                                           'password': ['secret']}
+    assert test_2.realted_fields_logic == {
+        'username': ['secret'],
+        'password': ['secret'],
+    }
     d = test_2.instance.get_dict(exclude=["id"])
-    assert d == {'username': 'wrong', 'password': 'incorrect',
-                 'secret': 'Secret message', 'rec_name': ''}
-
+    assert d == {
+        'username': 'wrong',
+        'password': 'incorrect',
+        'secret': 'Secret message',
+        'rec_name': '',
+    }

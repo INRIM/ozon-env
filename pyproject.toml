@@ -1,9 +1,9 @@
 [project]
 name = "ozon-env"
-version = "3.3.5"
+version = "4.0.0"
 description = "Ozon Env API"
 readme = "README.md"
-requires-python = ">=3.10,<4.0"
+requires-python = ">=3.11,<4.0"
 license = { text = "MIT" }
 authors = [
     { name = "Alessio Gerace", email = "alessio.gerace@gmail.com" }
@@ -18,6 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: Implementation :: CPython"
 ]
 
@@ -38,6 +39,7 @@ dependencies = [
     "datamodel-code-generator==0.54.0",
     "pendulum>=3.0.0",
     "iso8601",
+    "PyJWT[crypto]>=2.9.0",
     "setuptools>=82.0.0; python_version >= '3.12'"
 ]
 
@@ -60,8 +62,8 @@ exclude = ["tests/*"]
 [tool.poetry.group.dev.dependencies]
 pytest = "*"
 pytest-asyncio = ">=0.23.4"
-pytest-mock = "*"
 pytest-cov = "4.1.0"
+pytest-dotenv = "^0.5.2"
 flake9 = ">=3.8.3"
 isort = ">=5.8.0"
 black = ">=22.10.0"
@@ -91,6 +93,9 @@ force_single_line = true
 skip = "tests"
 
 [tool.pytest.ini_options]
+env_files = [
+    "tests/.env-test"
+]
 filterwarnings = [
     "error",
     "ignore::UserWarning",

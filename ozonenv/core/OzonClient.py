@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from datetime import date, datetime
 
 import aiofiles
@@ -70,17 +71,90 @@ class OzonDataApiClient:
         base_url="",
         api_prefix="/base_usr/v2",
         token="",
+        job_token="",
+        oauth_url="",
+        oauth_client_id="",
+        oauth_client_secret="",
+        token_audience="",
         timeout=90,
     ):
         self = OzonDataApiClient()
         self.base_url = str(base_url or "").rstrip("/")
         self.api_prefix = "/" + str(api_prefix or "base_usr/v2").strip("/")
         self.token = token or ""
+        self.job_token = job_token or ""
+        self.oauth_url = oauth_url or os.getenv("OZON_OAUTH_URL", "")
+        self.oauth_client_id = (
+            oauth_client_id
+            or os.getenv("OZON_REST_CLIENT_ID", "")
+            or os.getenv("OZON_M2M_CLIENT_ID", "")
+            or os.getenv("OZON_CLIENT_ID", "")
+        )
+        self.oauth_client_secret = (
+            oauth_client_secret
+            or os.getenv("OZON_REST_CLIENT_SECRET", "")
+            or os.getenv("OZON_M2M_CLIENT_SECRET", "")
+            or os.getenv("OZON_CLIENT_SECRET", "")
+        )
+        self.token_audience = token_audience or os.getenv(
+            "OZON_TOKEN_AUDIENCE", ""
+        )
         self.timeout = timeout
         return self
 
     def set_token(self, token: str):
         self.token = token or ""
+
+    def set_job_token(self, job_token: str):
+        self.job_token = job_token or ""
+
+    def has_oauth_config(self) -> bool:
+        return any(
+            [
+                self.oauth_url,
+                self.oauth_client_id,
+                self.oauth_client_secret,
+            ]
+        )
+
+    def can_generate_token(self) -> bool:
+        return all(
+            [
+                self.oauth_url,
+                self.oauth_client_id,
+                self.oauth_client_secret,
+            ]
+        )
+
+    async def _get_token(self) -> str:
+        if not self.can_generate_token():
+            raise ValueError(
+                "OZON_OAUTH_URL, OZON_CLIENT_ID and "
+                "OZON_CLIENT_SECRET are required to generate an OAuth token"
+            )
+        data = {
+            "grant_type": "client_credentials",
+            "client_id": self.oauth_client_id,
+            "client_secret": self.oauth_client_secret,
+        }
+        if self.token_audience:
+            data["audience"] = self.token_audience
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(self.oauth_url, data=data)
+        response.raise_for_status()
+        token = response.json().get("access_token")
+        if not token:
+            raise ValueError(
+                "OAuth token response does not contain access_token"
+            )
+        return token
+
+    async def ensure_token(self):
+        if self.token:
+            return
+        if not self.has_oauth_config():
+            return
+        self.token = await self._get_token()
 
     def get_headers(self):
         headers = {
@@ -89,6 +163,8 @@ class OzonDataApiClient:
         }
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
+        if self.job_token:
+            headers["job_token"] = self.job_token
         return headers
 
     def operation_url(self, operation_name: str) -> str:
@@ -100,6 +176,7 @@ class OzonDataApiClient:
     async def post_operation(self, operation_name: str, payload: dict = None):
         if payload is None:
             payload = {}
+        await self.ensure_token()
         url = self.operation_url(operation_name)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
@@ -119,6 +196,7 @@ class OzonDataApiClient:
     ):
         if params is None:
             params = {}
+        await self.ensure_token()
         url = self.resource_url(resource_path)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(

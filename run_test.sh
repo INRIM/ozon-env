@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 cleanup() {
-  docker compose down --remove-orphans
+  docker compose --env-file tests/.env-test down --remove-orphans
 }
 trap cleanup EXIT
 
@@ -26,28 +26,44 @@ fi
 echo "install project dependencies"
 poetry install --with dev --sync
 
-echo "set test env"
-export APP_CODE="${APP_CODE:-test}"
-export STACK="${STACK:-test}"
-export MONGO_DB="${MONGO_DB:-servicetest}"
-export MONGO_USER="${MONGO_USER:-servicetest}"
-export MONGO_PASS="${MONGO_PASS:-servicetest}"
-export MONGO_URL="${MONGO_URL:-localhost:10002}"
-export MONGO_REPLICA="${MONGO_REPLICA:-}"
-export MODELS_FOLDER="${MODELS_FOLDER:-tests/models}"
+wait_for_http() {
+  local url="$1"
+  local name="$2"
+  local max_attempts="${3:-60}"
+  local sleep_seconds="${4:-2}"
+
+  echo "waiting for ${name} on ${url}"
+
+  for ((i=1; i<=max_attempts; i++)); do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      echo "${name} is ready"
+      return 0
+    fi
+    echo "${name} not ready yet (${i}/${max_attempts})"
+    sleep "$sleep_seconds"
+  done
+
+  echo "ERROR: ${name} not ready after ${max_attempts} attempts"
+  docker compose logs keycloak || true
+  return 1
+}
 
 echo "reset compose stack"
-docker compose down -v --remove-orphans || true
+docker compose --env-file tests/.env-test down -v --remove-orphans || true
 
 echo "make compose"
-docker compose up -d --force-recreate
+docker compose --env-file tests/.env-test up -d --force-recreate
+
+wait_for_http \
+  "http://localhost:10765/realms/test/.well-known/openid-configuration" \
+  "keycloak-ozn-test"
 
 echo "check code"
 poetry run black ozonenv/**/*.py
 # poetry run flake8 ozonenv/**/*.py
 
 echo "run test"
-rm -rf tests/models
+rm -rf tests/models models
 time poetry run pytest --cov --cov-report=html -vv -x -s "$@"
 
 echo "make project: Done."

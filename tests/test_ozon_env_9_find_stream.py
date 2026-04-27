@@ -9,8 +9,7 @@ async def test_stream_and_find_large_dataset():
 
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
 
     model = env.get("test_form_1")
 
@@ -18,10 +17,7 @@ async def test_stream_and_find_large_dataset():
     # Insert 200 records
     # -----------------------------
     for i in range(200):
-        rec = await model.new({
-            "post_id": str(i),
-            "firstName": f"user_{i}"
-        })
+        rec = await model.new({"post_id": str(i), "firstName": f"user_{i}"})
         await model.insert(rec)
 
     # -----------------------------
@@ -66,16 +62,16 @@ async def test_stream_and_find_large_dataset():
 
     await env.close_env()
 
+
 @pytest.mark.asyncio
 async def test_search_distinct():
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
 
     model = env.get("test_form_1")
 
-    records = await model.search_all_distinct("firstName",{})
+    records = await model.search_all_distinct("firstName", {})
 
     assert isinstance(records, list)
     assert len(records) >= 200
@@ -86,16 +82,12 @@ async def test_stream_memory_stable():
 
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
 
     model = env.get("test_form_1")
 
     for i in range(500):
-        rec = await model.new({
-            "post_id": str(i),
-            "firstName": f"user_{i}"
-        })
+        rec = await model.new({"post_id": str(i), "firstName": f"user_{i}"})
         await model.insert(rec)
 
     count = 0
@@ -116,24 +108,23 @@ async def test_obfuscate_multiple_fields():
 
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
 
     model = env.get("test_form_1")
 
     unique_name = f"Mario_{uuid.uuid4().hex}"
 
     # Inserisco record reale
-    rec = await model.new({
-        "firstName": unique_name,
-        "email": "mario.rossi@test.com",
-        "birthdate": "1990-01-01",
-        "howManySeats": 4,
-        "favouriteSeason": "summer",
-        "survey": {
-            "overallExperience": "excellent"
+    rec = await model.new(
+        {
+            "firstName": unique_name,
+            "email": "mario.rossi@test.com",
+            "birthdate": "1990-01-01",
+            "howManySeats": 4,
+            "favouriteSeason": "summer",
+            "survey": {"overallExperience": "excellent"},
         }
-    })
+    )
 
     rec = await model.insert(rec)
 
@@ -162,7 +153,7 @@ async def test_obfuscate_multiple_fields():
             "howManySeats",
             "favouriteSeason",
             "survey",
-        ]
+        ],
     )
 
     assert len(records_obf) == 1
@@ -181,35 +172,34 @@ async def test_obfuscate_multiple_fields():
 
     await env.close_env()
 
+
 @pytest.mark.asyncio
 async def test_stream_obfuscate_fields():
 
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
 
     model = env.get("test_form_1")
 
     unique_name = f"Mario_{uuid.uuid4().hex}"
 
-    rec = await model.new({
-        "firstName": unique_name,
-        "email": "mario.rossi@test.com",
-        "birthdate": "1990-01-01",
-        "howManySeats": 4,
-        "favouriteSeason": "summer",
-        "survey": {
-            "overallExperience": "excellent"
+    rec = await model.new(
+        {
+            "firstName": unique_name,
+            "email": "mario.rossi@test.com",
+            "birthdate": "1990-01-01",
+            "howManySeats": 4,
+            "favouriteSeason": "summer",
+            "survey": {"overallExperience": "excellent"},
         }
-    })
+    )
     rec = await model.insert(rec)
 
     found = False
 
     async for rec_stream in model.stream_find(
-        {"id": rec.id},
-        obfuscate_fields=["firstName", "email","survey"]
+        {"id": rec.id}, obfuscate_fields=["firstName", "email", "survey"]
     ):
         found = True
         assert rec_stream.firstName != unique_name

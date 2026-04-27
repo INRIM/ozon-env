@@ -1,342 +1,171 @@
-import json
-from pathlib import Path
+import os
 
-import httpx
 import pytest
 
 from ozonenv.OzonEnv import OzonEnv, OzonEnvRest
-from ozonenv.core.OzonClient import OzonDataApiClient
-from ozonenv.core.OzonOrm import OzonModelRest
-from ozonenv.core.exceptions import SessionException
-from tests.test_common import User, get_i18n_localedir_tr
-
+from tests.helpers.keycloak import get_m2m_token
+from tests.helpers.rest_sidecar import (
+    RealOzonEnvApiServer,
+    build_test_db_cfg,
+)
+from tests.test_common import auth_env, get_auth_token, init_main_collections
 
 pytestmark = pytest.mark.asyncio
 
 
-def _cfg(models_folder: Path, **extra):
-    cfg = {
-        "app_code": "test-rest",
-        "backend_interface": "rest",
-        "models_folder": str(models_folder),
-    }
-    cfg.update(extra)
-    return cfg
-
-
-def _settings():
-    return {
-        "rec_name": "test-rest",
-        "upload_folder": "/uploads",
-        "tz": "Europe/Rome",
-    }
-
-
-def _sessions():
-    return [
-        {
-            "rec_name": "session.admin",
-            "uid": "admin",
-            "token": "BA6BA930",
-            "expire_datetime": "2030-01-01T00:00:00+00:00",
-            "is_public": False,
-            "user": {"uid": "admin"},
-            "app_code": "test-rest",
-            "active": True,
-        },
-        {
-            "rec_name": "session.public",
-            "uid": "public",
-            "token": "PUBLIC",
-            "expire_datetime": "2030-01-01T00:00:00+00:00",
-            "is_public": True,
-            "user": {"uid": "public"},
-            "app_code": "test-rest",
-            "active": True,
-        },
-    ]
-
-
-def _years_component():
-    path = Path(__file__).parents[1] / "data" / "test_resource_2_formio_schema_years.json"
-    return json.loads(path.read_text())
-
-
-def _set_i18n_env(monkeypatch):
-    monkeypatch.setenv("OZON_LOCALEDIR", get_i18n_localedir_tr())
-    monkeypatch.setenv("OZON_APPLANG", "it")
-
-
-async def test_rest_init_env_generates_model_from_components(monkeypatch, tmp_path):
-    _set_i18n_env(monkeypatch)
-    env = OzonEnvRest(_cfg(tmp_path / "models"))
-
-    await env.init_env(
-        components=[_years_component()],
-        sessions=_sessions(),
-        settings=_settings(),
+async def _authenticated_env(tmp_path, name: str = "db-auth"):
+    cfg = build_test_db_cfg(
+        tmp_path / name,
+        app_code=os.getenv("APP_CODE", "test"),
     )
-
-    assert env.orm.__class__.__name__ == "OzonOrmRest"
-    assert env.get("years") is not None
-    assert (tmp_path / "models" / "years.py").exists()
-
-    await env.close_env()
-
-
-async def test_rest_init_env_loads_existing_model_from_models_folder(
-    monkeypatch, tmp_path
-):
-    _set_i18n_env(monkeypatch)
-    cfg = _cfg(tmp_path / "models")
-    env = OzonEnvRest(cfg)
-    await env.init_env(
-        components=[_years_component()],
-        sessions=_sessions(),
-        settings=_settings(),
+    env = OzonEnv(cfg)
+    await env.init_env()
+    await init_main_collections(env.db)
+    result = await auth_env(
+        env,
+        username="adminuser",
+        password="adminpass",
     )
-    await env.close_env()
-
-    env2 = OzonEnvRest(cfg)
-    await env2.init_env(
-        sessions=_sessions(),
-        settings=_settings(),
-    )
-
-    assert env2.get("years") is not None
-
-    await env2.close_env()
+    assert result.fail is False
+    return env, cfg
 
 
-async def test_rest_session_validation_is_local(monkeypatch, tmp_path):
-    _set_i18n_env(monkeypatch)
-    env = OzonEnvRest(_cfg(tmp_path / "models"))
-    await env.init_env(
-        sessions=_sessions(),
-        settings=_settings(),
-    )
+async def test_db_user_auth_uses_real_keycloak_and_persists_token(tmp_path):
+    env, _cfg = await _authenticated_env(tmp_path)
+    try:
+        assert "session" not in env.models
+        assert env.user_session.uid == "adminuser"
+        assert env.orm.user_session.uid == "adminuser"
+        assert env.session_token
 
-    env.params = {"current_session_token": "BA6BA930"}
-    res = await env.session_app()
-    assert res.fail is False
-    assert env.user_session.uid == "admin"
-
-    env.params = {"current_session_token": "NOT-VALID"}
-    res = await env.session_app()
-    assert res.fail is True
-    assert res.msg == "Token NOT-VALID non abilitato"
-
-    await env.close_env()
-
-
-async def test_rest_session_is_optional_without_token(monkeypatch, tmp_path):
-    _set_i18n_env(monkeypatch)
-    env = OzonEnvRest(_cfg(tmp_path / "models", rest_token="cfg-token"))
-    await env.init_env(
-        settings=_settings(),
-    )
-
-    env.params = {}
-    res = await env.session_app()
-
-    assert res.fail is False
-    assert env.user_session is None
-    assert env.orm.rest_client.get_headers()["Authorization"] == "Bearer cfg-token"
-
-    await env.close_env()
-
-
-async def test_rest_public_session_denies_private_models(monkeypatch, tmp_path):
-    _set_i18n_env(monkeypatch)
-    env = OzonEnvRest(_cfg(tmp_path / "models"))
-    await env.init_env(
-        local_model={"user": User},
-        local_model_private=["user"],
-        sessions=_sessions(),
-        settings=_settings(),
-    )
-
-    env.params = {"current_session_token": "PUBLIC"}
-    res = await env.session_app()
-    assert res.fail is False
-
-    with pytest.raises(SessionException) as excinfo:
-        await env.get("user").find({})
-
-    assert excinfo.value.detail == "Permission Denied"
-    await env.close_env()
-
-
-async def test_rest_model_calls_expected_operations(monkeypatch, tmp_path):
-    _set_i18n_env(monkeypatch)
-    env = OzonEnvRest(_cfg(tmp_path / "models"))
-    await env.init_env(
-        local_model={"user": User},
-        sessions=_sessions(),
-        settings=_settings(),
-    )
-    await env.orm.init_session("BA6BA930")
-    model = env.get("user")
-
-    calls = []
-
-    async def fake_post(operation_name, payload=None):
-        calls.append((operation_name, payload))
-        if operation_name == "find":
-            return {
-                "data": [
-                    {
-                        "rec_name": "admin",
-                        "uid": "admin",
-                        "password": "secret",
-                        "token": "BA6BA930",
-                        "expire_datetime": "2030-01-01T00:00:00+00:00",
-                    }
-                ]
-            }
-        if operation_name == "load":
-            return {
-                "data": {
-                    "rec_name": "admin",
-                    "uid": "admin",
-                    "password": "secret",
-                    "token": "BA6BA930",
-                    "expire_datetime": "2030-01-01T00:00:00+00:00",
-                }
-            }
-        if operation_name == "insert":
-            return {
-                "data": {
-                    "rec_name": "user.new",
-                    "uid": "user.new",
-                    "password": "secret",
-                    "token": "",
-                    "expire_datetime": "2030-01-01T00:00:00+00:00",
-                }
-            }
-        return {"data": {}}
-
-    monkeypatch.setattr(env.orm.rest_client, "post_operation", fake_post)
-
-    found = await model.find({"uid": "admin"})
-    loaded = await model.load({"uid": "admin"})
-    record = await model.new(
-        {
-            "rec_name": "user.new",
-            "uid": "user.new",
-            "password": "secret",
-            "expire_datetime": "2030-01-01T00:00:00+00:00",
-        }
-    )
-    inserted = await model.insert(record)
-
-    assert found[0].uid == "admin"
-    assert loaded.uid == "admin"
-    assert inserted.uid == "user.new"
-    assert [name for name, _payload in calls] == ["find", "load", "insert"]
-
-    await env.close_env()
-
-
-async def test_rest_custom_cls_model_is_preserved(monkeypatch, tmp_path):
-    _set_i18n_env(monkeypatch)
-
-    class CustomRestModel(OzonModelRest):
-        pass
-
-    env = OzonEnvRest(_cfg(tmp_path / "models"), cls_model=CustomRestModel)
-    await env.init_env(
-        local_model={"user": User},
-        sessions=_sessions(),
-        settings=_settings(),
-    )
-
-    assert env.orm.cls_model is CustomRestModel
-    assert env.get("user").__class__ is CustomRestModel
-
-    await env.close_env()
-
-
-async def test_rest_init_db_models_uses_bootstrap_api(monkeypatch, tmp_path):
-    _set_i18n_env(monkeypatch)
-    calls = []
-
-    async def fake_get_resource(self, resource_path, params=None):
-        calls.append(resource_path)
-        if resource_path == "collections_names":
-            return {"data": ["user", "years"]}
-        if resource_path == "init_settings/test-rest":
-            return {"data": _settings()}
-        return {}
-
-    env = OzonEnvRest(
-        _cfg(
-            tmp_path / "models",
-            rest_base_url="http://base_usr",
-            rest_api_prefix="/base_usr/v2",
-            rest_token="cfg-token",
+        stored_user = await env.db.engine.get_collection("user").find_one(
+            {"uid": "adminuser"}
         )
-    )
-    monkeypatch.setattr(
-        OzonDataApiClient, "get_resource", fake_get_resource
-    )
-
-    await env.init_env(
-        local_model={"user": User},
-    )
-
-    assert env.orm.db_models == ["user", "years"]
-    assert env.orm.app_settings.rec_name == "test-rest"
-    assert calls == ["collections_names", "init_settings/test-rest"]
-
-    await env.close_env()
+        assert stored_user["token"]["access_token"] == env.session_token
+        assert stored_user["last_login"] is not None
+    finally:
+        await env.close_env()
 
 
-async def test_rest_backend_rejects_db_model_class(tmp_path):
-    with pytest.raises(ValueError) as excinfo:
-        OzonEnv(_cfg(tmp_path / "models"))
+async def test_jobcontext_crud_and_real_m2m_validation(tmp_path):
+    env, cfg = await _authenticated_env(tmp_path, name="jobcontext-db")
+    api_env = None
+    try:
+        client_id = os.environ["OZON_M2M_CLIENT_ID"]
+        job_context = await env.create_job_context(
+            client_id=client_id,
+            expire_sec=120,
+            job_key="job-real-m2m",
+            process_instance_key="proc-real-m2m",
+        )
 
-    assert "interface_type 'db'" in str(excinfo.value)
+        loaded = await env.get("jobcontext").load(
+            {"job_token": job_context.job_token}
+        )
+        assert loaded.job_token == job_context.job_token
+        assert loaded.resolved_user_id == "adminuser"
+
+        m2m_token = await get_m2m_token()
+        api_env = OzonEnv(cfg)
+        await api_env.init_env()
+        resolved = await api_env.init_api_job_context(
+            m2m_token=f"Bearer {m2m_token}",
+            job_token=job_context.job_token,
+        )
+
+        assert resolved.job_token == job_context.job_token
+        assert api_env.current_job_context.job_token == job_context.job_token
+        assert api_env.user_session.uid == "adminuser"
+
+        deleted = await env.delete_job_context(job_context.job_token)
+        assert deleted is True
+    finally:
+        if api_env:
+            await api_env.close_env()
+        await env.close_env()
 
 
-async def test_rest_client_uses_bearer_token(monkeypatch):
-    captured = {}
+async def test_rest_client_calls_endpoint_backed_by_real_ozonenv_db(tmp_path):
+    env, cfg = await _authenticated_env(tmp_path, name="rest-sidecar-db")
+    rest = None
+    try:
+        user_collection = env.db.engine.get_collection("user")
+        await user_collection.delete_many(
+            {"uid": {"$in": ["api-user", "api-user.new"]}}
+        )
+        await user_collection.insert_one(
+            {
+                "rec_name": "api-user",
+                "uid": "api-user",
+                "nome": "Api",
+                "cognome": "User",
+                "mail": "api-user@example.test",
+                "function": "worker",
+                "active": True,
+            }
+        )
+        job_context = await env.create_job_context(
+            client_id=os.environ["OZON_M2M_CLIENT_ID"],
+            expire_sec=300,
+            job_key="job-rest-sidecar",
+            process_instance_key="proc-rest-sidecar",
+        )
+        current_token = await get_auth_token(
+            username="adminuser",
+            password="adminpass",
+        )
 
-    class DummyResponse:
-        status_code = 200
-        content = b"{}"
+        with RealOzonEnvApiServer(cfg) as api:
+            rest = OzonEnvRest(
+                {
+                    "app_code": "test-rest-sidecar",
+                    "models_folder": str(tmp_path / "rest-client-models"),
+                    "rest_base_url": api.base_url,
+                    "rest_oauth_url": os.environ["OZON_OAUTH_URL"],
+                    "rest_client_id": os.environ["OZON_M2M_CLIENT_ID"],
+                    "rest_client_secret": os.environ["OZON_M2M_CLIENT_SECRET"],
+                    "token_audience": os.environ["OZON_TOKEN_AUDIENCE"],
+                }
+            )
+            rest.params = {
+                "current_token": current_token,
+                "job_token": job_context.job_token,
+                "current_user": {
+                    "uid": "adminuser",
+                    "full_name": "Admin User",
+                    "mail": "admin@example.test",
+                },
+            }
+            await rest.init_env(
+                settings={
+                    "rec_name": "test-rest-sidecar",
+                    "upload_folder": "/uploads",
+                    "tz": "Europe/Rome",
+                }
+            )
+            result = await rest.session_app()
+            assert result.fail is False
 
-        def raise_for_status(self):
-            return None
+            user_model = rest.get("user")
+            users = await user_model.find({"uid": "api-user"})
+            record = await user_model.new(
+                {
+                    "rec_name": "api-user.new",
+                    "uid": "api-user.new",
+                    "active": True,
+                }
+            )
+            saved = await user_model.insert(record)
 
-        def json(self):
-            return {}
+        headers = rest.orm.rest_client.get_headers()
+        stored_user = await user_collection.find_one({"uid": "api-user.new"})
 
-    async def fake_post(self, url, json=None, headers=None):
-        captured["url"] = url
-        captured["json"] = json
-        captured["headers"] = headers
-        return DummyResponse()
-
-    async def fake_get(self, url, params=None, headers=None):
-        captured["get_url"] = url
-        captured["get_params"] = params
-        captured["get_headers"] = headers
-        return DummyResponse()
-
-    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
-    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
-
-    client = OzonDataApiClient.create(
-        base_url="http://example.test",
-        api_prefix="/base_usr/v2",
-        token="secret-token",
-    )
-    await client.post_operation("find", {"model": "user"})
-    await client.get_resource("collections_names")
-
-    assert captured["url"] == "http://example.test/base_usr/v2/find"
-    assert captured["headers"]["Authorization"] == "Bearer secret-token"
-    assert captured["json"]["model"] == "user"
-    assert captured["get_url"] == "http://example.test/base_usr/v2/collections_names"
-    assert captured["get_headers"]["Authorization"] == "Bearer secret-token"
+        assert len(users) == 1
+        assert saved.uid == "api-user.new"
+        assert stored_user["uid"] == "api-user.new"
+        assert headers["Authorization"].startswith("Bearer ")
+        assert headers["job_token"] == job_context.job_token
+    finally:
+        if rest:
+            await rest.close_env()
+        await env.close_env()

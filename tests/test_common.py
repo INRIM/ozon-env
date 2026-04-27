@@ -1,20 +1,10 @@
 import pytest
 from pathlib import Path
 from test_utils import *
-from ozonenv.core.BaseModels import BasicModel, List, Dict
+from ozonenv.core.BaseModels import BasicModel, User
+from tests.helpers.keycloak import get_keycloak_token
 
 pytestmark = pytest.mark.asyncio
-
-
-def init_env_var():
-    os.environ["APP_CODE"] = "test"
-    os.environ["STACK"] = "test"
-    os.environ["MONGO_DB"] = "servicetest"
-    os.environ["MONGO_USER"] = "servicetest"
-    os.environ["MONGO_PASS"] = "servicetest"
-    os.environ["MONGO_URL"] = "localhost:10002"
-    os.environ["MONGO_REPLICA"] = ""
-    os.environ["MODELS_FOLDER"] = "tests/models"
 
 
 def get_i18n_localedir():
@@ -48,8 +38,39 @@ async def init_collecetion(db, file_name, collection):
 
 @pytestmark
 async def init_main_collections(db):
-    await init_collecetion(db, 'coll_session.json', "session")
+    await init_collecetion(db, 'coll_user.json', "user")
     await init_collecetion(db, 'config.json', "settings")
+
+
+@pytestmark
+async def get_auth_token(username="adminuser", password="adminpass") -> str:
+    return await get_keycloak_token(username=username, password=password)
+
+
+@pytestmark
+async def make_auth_params(
+    username="adminuser", password="adminpass", **extra
+) -> dict:
+    params = {
+        "current_token": await get_auth_token(
+            username=username,
+            password=password,
+        )
+    }
+    params.update(extra)
+    return params
+
+
+@pytestmark
+async def auth_env(env, username="adminuser", password="adminpass", **extra):
+    if getattr(env, "db", None):
+        await init_main_collections(env.db)
+    env.params = await make_auth_params(
+        username=username,
+        password=password,
+        **extra,
+    )
+    return await env.session_app()
 
 
 @pytestmark
@@ -75,36 +96,40 @@ async def get_formio_data():
 @pytestmark
 async def get_formio_schema_conditional():
     return await readfilejson(
-        'data', 'test_formio_conditional_visibility_json_logic_schema.json')
+        'data', 'test_formio_conditional_visibility_json_logic_schema.json'
+    )
 
 
 @pytestmark
 async def get_formio_schema_conditional_data_hide():
     return await readfilejson(
         'data',
-        'test_formio_data_conditional_visibility_json_logic_hide_secret.json')
+        'test_formio_data_conditional_visibility_json_logic_hide_secret.json',
+    )
 
 
 @pytestmark
 async def get_formio_schema_conditional_data_show():
     return await readfilejson(
         'data',
-        'test_formio_data_conditional_visibility_json_logic_show_secret.json')
+        'test_formio_data_conditional_visibility_json_logic_show_secret.json',
+    )
 
 
 @pytestmark
 async def get_user_data():
-    return await readfilejson(
-        'data', 'coll_user.json')
+    return await readfilejson('data', 'coll_user.json')
 
 
 @pytestmark
 async def get_file_data():
     return await readfilejson('data', 'data_file_1.json')
 
+
 @pytestmark
 async def get_formio_posizione_schema():
     return await readfilejson('data', 'posizione.json')
+
 
 @pytestmark
 async def get_formio_doc_schema():
@@ -118,42 +143,11 @@ async def get_formio_doc_schema2():
 
 @pytestmark
 async def get_formio_doc_riga_schema():
-    return await readfilejson('data',
-                              'test_form_3_formio_schema_doc_riga.json')
+    return await readfilejson(
+        'data', 'test_form_3_formio_schema_doc_riga.json'
+    )
 
 
 @pytestmark
 async def downlad_file(self, file_url):
     return await readfile(self.upload_folder, file_url)
-
-
-class User(BasicModel):
-    uid: str
-    password: str
-    token: str = ""
-    req_id: str = ""
-    parent: str = ""
-    full_name: str = ""
-    last_update: float = 0
-    is_admin: bool = False
-    is_bot: bool = False
-    use_auth: bool = False
-    nome: str = ""
-    cognome: str = ""
-    mail: str = ""
-    matricola: str = ""
-    codicefiscale: str = ""
-    allowed_users: List = []
-    user_data: Dict = {}
-    list_order: int = 1
-    process_id: str = ""
-    process_task_id: str = ""
-    user_preferences: dict = {}
-    user_function: str = ""
-    function: str = ""
-    badge_number: str = ""
-    serial_number: str = ""
-
-    @classmethod
-    def get_unique_fields(cls):
-        return ["rec_name", "uid"]

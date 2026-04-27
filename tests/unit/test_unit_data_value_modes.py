@@ -51,17 +51,17 @@ def test_data_value_mode_runtime_default():
 
     assert env.data_value_mode == "runtime"
     assert env.is_data_value_runtime_enabled("invoice") is True
-    assert env.is_data_value_runtime_enabled("session") is True
+    assert env.is_data_value_runtime_enabled("user") is True
 
 
 def test_data_value_mode_background_runtime_only_models():
     env = OzonEnvBase(cfg=_base_cfg(data_value_mode="background"))
 
     assert env.is_data_value_runtime_enabled("invoice") is False
-    assert env.is_data_value_runtime_enabled("session") is True
     assert env.is_data_value_runtime_enabled("component") is True
     assert env.is_data_value_runtime_enabled("settings") is True
     assert env.is_data_value_runtime_enabled("user") is True
+    assert env.is_data_value_runtime_enabled("jobcontext") is True
 
 
 def test_data_value_mode_invalid_fallback_to_runtime():
@@ -107,18 +107,18 @@ async def test_make_data_value_computes_in_runtime_mode():
 @pytest.mark.asyncio
 async def test_env_update_data_value_bg_skips_runtime_only_models():
     env = OzonEnvBase(cfg=_base_cfg(data_value_mode="background"))
-    session_model = DummyBgModel("session")
+    jobcontext_model = DummyBgModel("jobcontext")
     component_model = DummyBgModel("component")
     invoice_model = DummyBgModel("invoice")
     env.models = {
-        "session": session_model,
+        "jobcontext": jobcontext_model,
         "component": component_model,
         "invoice": invoice_model,
     }
 
     res = await env.update_data_value_bg(window="create_dt", hours=2)
 
-    assert "session" not in res
+    assert "jobcontext" not in res
     assert "component" not in res
     assert "invoice" in res
     assert invoice_model.calls == [("create_dt", 2)]

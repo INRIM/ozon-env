@@ -40,8 +40,8 @@ msgid "Validation Error  %s "
 msgstr "Errore di validazione %s"
 
 #: /Users/archetipo/devel/microservices/dev_libs/ozon-env/ozonenv/core/OzonModel.py:265
-msgid "Duplicate session instance is not allowed"
-msgstr "Non è consentito duplicare un record sessione"
+msgid "Duplicate virtual model is not allowed"
+msgstr "Non è consentito duplicare un modello virtuale"
 
 #: /Users/archetipo/devel/microservices/dev_libs/ozon-env/ozonenv/core/OzonModel.py:293
 msgid "Cannot update a virtual object"

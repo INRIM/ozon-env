@@ -2,7 +2,6 @@ from datetime import datetime
 
 from ozonenv.OzonEnv import OzonEnv
 from ozonenv.core.BaseModels import CoreModel
-from ozonenv.core.exceptions import SessionException
 from test_common import *
 
 pytestmark = pytest.mark.asyncio
@@ -12,16 +11,15 @@ pytestmark = pytest.mark.asyncio
 async def test_add_user_static_model():
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     user_model = await env.add_static_model('u SEr', User, True)
     assert user_model.name == "user"
     ret_model = env.get('user')
     assert ret_model.name == "user"
     assert ret_model.static is User
     assert ['rec_name', 'uid'] == User.get_unique_fields()
-    users = await user_model.find({'uid': 'admin'})
-    assert len(users) == 0
+    users = await user_model.find({'uid': 'adminuser'})
+    assert len(users) == 1
     await env.close_env()
 
 
@@ -29,43 +27,52 @@ async def test_add_user_static_model():
 async def test_add_user_static_model_check_public():
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     user_model = await env.add_static_model('u SEr', User, True)
-    users = await user_model.find({'uid': 'admin'})
-    assert len(users) == 0
-    env.params = {"current_session_token": "PUBLIC"}
-    await env.session_app()
-    assert env.user_session.uid == "public"
-    assert env.user_session.is_public is True
-    assert env.orm.user_session.is_public is True
-    with pytest.raises(SessionException) as excinfo:
-        users = await user_model.find({})
-    assert 'Permission Denied' in str(excinfo)
+    users = await user_model.find({'uid': 'adminuser'})
+    assert len(users) == 1
+    await auth_env(env, username="testuser", password="testpass")
+    assert env.user_session.uid == "testuser"
+    assert env.user_session.is_public is False
+    assert env.orm.user_session.is_public is False
+    users = await user_model.find({})
+    assert len(users) >= 2
     await env.close_env()
 
 
 @pytestmark
 async def test_user_static_model_add_data():
     data = await get_user_data()
+    user_data = data[0].copy()
+    user_data.update(
+        {
+            "rec_name": "static-model-user",
+            "uid": "static-model-user",
+            "full_name": "Static Model User",
+            "mail": "static-model-user@example.local",
+        }
+    )
     env = OzonEnv()
     await env.init_env(
         local_model={"user": User}, local_model_private=["user"]
     )
-    await env.orm.init_session("BA6BA930")
+    await auth_env(env)
     user_model = env.get('user')
     assert user_model.name == "user"
     assert user_model.static == User
-    user = await user_model.new(data[0])
-    assert user.get('full_name') == "Test Test"
-    assert user.get('uid') == "admin"
+    await env.db.engine.get_collection("user").delete_many(
+        {"uid": "static-model-user"}
+    )
+    user = await user_model.new(user_data)
+    assert user.get('full_name') == "Static Model User"
+    assert user.get('uid') == "static-model-user"
     await user_model.insert(user)
-    users = await user_model.find({'uid': 'admin'})
+    users = await user_model.find({'uid': 'static-model-user'})
     assert len(users) == 1
     db_user = users[0]
-    assert db_user.uid == "admin"
-    assert db_user.full_name == "Test Test"
-    assert db_user.rec_name == "admin"
+    assert db_user.uid == "static-model-user"
+    assert db_user.full_name == "Static Model User"
+    assert db_user.rec_name == "static-model-user"
     await env.close_env()
 
 
@@ -74,11 +81,11 @@ async def test_user_find_fields():
     data = await get_user_data()
     env = OzonEnv()
     await env.init_env(local_model={'user': User})
-    await env.orm.init_session("BA6BA930")
+    await auth_env(env)
     env.orm.add_private_model("user")
     user_model = env.get('user')
     users = await user_model.find_raw(
-        {'uid': 'admin'},
+        {'uid': 'adminuser'},
         fields={"rec_name": True, "full_name": True, "_id": False},
     )
     assert len(users) == 1
@@ -99,8 +106,7 @@ async def test_add_component_resource_1_product():
     await env.init_env()
     await env.orm.add_static_model('user', User)
     assert len(env.orm.orm_models) == 5
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     product_model = await env.add_schema(schema_dict)
     assert product_model.name == "prodotti"
     lst_prod = []
@@ -158,8 +164,7 @@ async def test_add_component_resource_1_product_raw_query():
     env = OzonEnv()
     await env.init_env()
     await env.orm.add_static_model('user', User)
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     product_model = env.get('prodotti')
     products = await product_model.find_raw(
         product_model.get_domain(), sort="list_order:asc"
@@ -179,8 +184,7 @@ async def test_aggregation_with_product1():
     env = OzonEnv()
     await env.init_env()
     await env.orm.add_static_model('user', User)
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     product_model = env.get('prodotti')
     products = await product_model.find(
         product_model.get_domain(), sort="label:asc"
@@ -240,8 +244,7 @@ async def test_aggregation_with_product2():
     env = OzonEnv()
     await env.init_env()
     await env.orm.add_static_model('user', User)
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     product_model = env.get('prodotti')
     pipeline_items = [
         {"$match": product_model.get_domain()},
@@ -283,8 +286,7 @@ async def test_products_distinct_name():
     env = OzonEnv()
     await env.init_env()
     await env.orm.add_static_model('user', User)
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     product_model = env.get('prodotti')
     products = await product_model.distinct(
         "rec_name", product_model.get_domain()
@@ -298,8 +300,7 @@ async def test_set_to_delete_product():
     env = OzonEnv()
     await env.init_env()
     await env.orm.add_static_model('user', User)
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     product_model = env.get('prodotti')
     pipeline_items = [
         {"$match": product_model.get_domain()},
@@ -355,8 +356,7 @@ async def test_init_schema_for_doc():
     schema_list3 = await get_formio_doc_schema2()
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     doc_schema = await env.insert_update_component(schema_list[0])
     assert doc_schema.rec_name == "documento"
     doc_schema1 = await env.insert_update_component(schema_list1[0])
@@ -374,8 +374,7 @@ async def test_model_hinerithances_doc():
     env = OzonEnv()
     await env.init_env()
     await env.orm.add_static_model('user', User)
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     await ini_data_doc(env.db)
     docbn_model = env.get('documento_beni_servizi')
     doc: CoreModel = await docbn_model.load({"idDg": "99999"})

@@ -10,4 +10,6 @@ tests/i18n
 htmlcov
 .coverage
 tests/models
+models
 localexample
+run_test_dev.sh

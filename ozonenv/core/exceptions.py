@@ -1,13 +1,13 @@
 import typing
 
 
-class SessionException(Exception):
+class OzonPermissionError(Exception):
     def __init__(
         self,
         detail: typing.Optional[str] = None,
     ) -> None:
         if detail is None:
-            detail = "Session Expired or Unactive"
+            detail = "Permission Denied"
         self.detail = detail
 
     def __repr__(self) -> str:

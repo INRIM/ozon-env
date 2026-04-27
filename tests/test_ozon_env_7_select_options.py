@@ -8,13 +8,10 @@ pytestmark = pytest.mark.asyncio
 async def test_riga_doc_select_model_distinct():
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     riga_doc_model = env.get('riga_doc')
 
-    record = await riga_doc_model.new({
-        "parent": "DOC99999"
-    })
+    record = await riga_doc_model.new({"parent": "DOC99999"})
 
     assert record.parent == "DOC99999"
     assert record.get("data_value.parent") == "8 - 2022"
@@ -32,17 +29,15 @@ async def test_riga_doc_select_model_distinct():
 
     await env.close_env()
 
+
 @pytestmark
 async def test_riga_doc_select_url():
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     test_form_1_model = env.get('test_form_1')
 
-    record = await test_form_1_model.new({
-        "post_id": "3"
-    })
+    record = await test_form_1_model.new({"post_id": "3"})
 
     assert record.post_id == "3"
     assert record.get("data_value.post_id") == ""
@@ -52,10 +47,17 @@ async def test_riga_doc_select_url():
     assert record.post_id == "3"
     assert record.get("data_value.post_id") == ""
 
-    record.selection_value("post_id", "1", "sunt aut facere repellat provident occaecati excepturi optio reprehenderit")
+    record.selection_value(
+        "post_id",
+        "1",
+        "sunt aut facere repellat provident occaecati excepturi optio reprehenderit",
+    )
     record = await test_form_1_model.update(record)
 
     assert record.post_id == "1"
-    assert record.get("data_value.post_id") == "sunt aut facere repellat provident occaecati excepturi optio reprehenderit"
+    assert (
+        record.get("data_value.post_id")
+        == "sunt aut facere repellat provident occaecati excepturi optio reprehenderit"
+    )
 
     await env.close_env()

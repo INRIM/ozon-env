@@ -3,7 +3,6 @@ from datetime import *
 
 from ozonenv.OzonEnv import OzonEnv
 from ozonenv.core.BaseModels import defaultdt, CoreModel
-from ozonenv.core.exceptions import SessionException
 from test_common import *
 
 pytestmark = pytest.mark.asyncio
@@ -13,8 +12,7 @@ pytestmark = pytest.mark.asyncio
 async def test_env_orm_basic():
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     executed_cmd = await env.orm.runcmd("ls -alh")
     await env.orm.set_lang()
     assert env.models['component'].model.str_name() == 'component'
@@ -26,8 +24,7 @@ async def test_env_orm_basic():
 async def test_env_data_file_virtual_model():
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     data = await get_file_data()
     data['stato'] = "caricato"
     data['document_type'] = "ordine"
@@ -38,7 +35,7 @@ async def test_env_data_file_virtual_model():
     doc = await virtual_doc_model.new(
         data=data,
         rec_name="virtual_data.test",
-        data_value={"stato": "Caricato", "document_type": "Ordine"}
+        data_value={"stato": "Caricato", "document_type": "Ordine"},
     )
     assert doc.get('rec_name') == 'virtual_data.test'
     assert doc.active is True
@@ -53,7 +50,9 @@ async def test_env_data_file_virtual_model():
     assert doc.get('data_value.document_type') == 'Ordine'
     assert doc.dtRegistrazione == '2022-05-23 22:00:00+00:00'
     assert doc.get('dg15XVoceCalcolata.1.imponibile') == 1446.16
-    assert doc.to_datetime("dtRegistrazione") == BasicModel.iso_to_utc('2022-05-23 22:00:00+00:00')
+    assert doc.to_datetime("dtRegistrazione") == BasicModel.iso_to_utc(
+        '2022-05-23 22:00:00+00:00'
+    )
     assert doc.dg15XVoceCalcolata[1].get('aliquota') == 20
 
     doc_not_saved = await virtual_doc_model.insert(doc)
@@ -77,11 +76,10 @@ async def test_env_data_file_virtual_model():
 async def test_component_test_form_1_init():
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     data = await readfilejson('data', 'test_form_1.0_formio_schema.json')
     component = await env.insert_update_component(data)
-    assert component.owner_uid == "admin"
+    assert component.owner_uid == "adminuser"
     assert component.rec_name == "test_form_1"
     assert hasattr(component, "content") is False
     assert component.update_datetime == BasicModel.default_datetime()
@@ -92,12 +90,12 @@ async def test_component_test_form_1_init():
     )
     await env.close_db()
 
+
 @pytestmark
 async def test_component_test_form_0_1_init_ok():
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     test_form_1_model = env.get('test_form_1')
     # Testa l'inserimento tramite metodo insert
     test_form_1_in = await test_form_1_model.new(
@@ -111,8 +109,10 @@ async def test_component_test_form_0_1_init_ok():
             "howManySeats": 4,
         }
     )
-    test_form_1_in.selection_value("favouriteSeason", "autumn", "Autunno")
-    test_form_1_in.selection_value("favouriteFood", ["mexican", "chinese"], "Messicano, Cinese")
+    test_form_1_in.favouriteSeason = "autumn"
+    test_form_1_in.selection_value(
+        "favouriteFood", ["mexican", "chinese"], "Messicano, Cinese"
+    )
 
     test_form_1_in = await test_form_1_model.insert(test_form_1_in)
 
@@ -138,12 +138,12 @@ async def test_component_test_form_0_1_init_ok():
     assert test_form_1_in.data_value["favouriteFood"] == "Mexican, Chinese"
     await env.close_env()
 
+
 @pytestmark
 async def test_component_test_form_1_raw_update():
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     old_test_form_1_model = env.get('test_form_1')
     old_test_form_1 = await old_test_form_1_model.new()
     assert len(old_test_form_1_model.form_fields) == 22
@@ -153,7 +153,7 @@ async def test_component_test_form_1_raw_update():
     assert hasattr(old_test_form_1, "content1") is True
     data = await readfilejson('data', 'test_form_1.1_formio_schema.json')
     component = await env.get('component').new(data=data)
-    assert component.owner_uid == "admin"
+    assert component.owner_uid == "adminuser"
     component = await env.get('component').update(component)
     assert component.rec_name == "test_form_1"
     assert not component.update_datetime == BasicModel.default_datetime()
@@ -169,8 +169,7 @@ async def test_component_test_form_1_update():
     start_time = time_.monotonic()
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     old_test_form_1_model = env.get('test_form_1')
     old_test_form_1 = await old_test_form_1_model.new()
     assert hasattr(old_test_form_1, "uploadBase64") is False
@@ -178,7 +177,7 @@ async def test_component_test_form_1_update():
     assert hasattr(old_test_form_1, "content1") is True
     data_schema = await readfilejson('data', 'test_form_1_formio_schema.json')
     component = await env.insert_update_component(data_schema)
-    assert component.owner_uid == "admin"
+    assert component.owner_uid == "adminuser"
     assert component.rec_name == "test_form_1"
     assert len(component.get('components')) == 13
     test_form_1_model = env.get('test_form_1')
@@ -195,10 +194,9 @@ async def test_component_test_form_1_update():
 async def test_component_test_form_1_load():
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     component = await env.get('component').load({"rec_name": 'test_form_1'})
-    assert component.owner_uid == "admin"
+    assert component.owner_uid == "adminuser"
     assert len(component.components) == 13
     assert component.get(f'components.{3}.label') == "Panel"
     await env.close_env()
@@ -209,16 +207,12 @@ async def test_test_form_1_public_init_data_err():
     data = await readfilejson('data', 'test_form_1_formio_data.json')
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "PUBLIC"}
-    await env.session_app()
-    # model is in env.models
-    assert env.user_session.uid == "public"
-    assert env.user_session.is_public is True
-    assert env.orm.user_session.is_public is True
+    await auth_env(env, username="testuser", password="testpass")
+    assert env.user_session.uid == "testuser"
+    assert env.user_session.is_public is False
+    assert env.orm.user_session.is_public is False
     settings = env.get('settings')
-    with pytest.raises(SessionException) as excinfo:
-        await settings.find({})
-    assert 'Permission Denied' in str(excinfo)
+    assert await settings.find({})
     await env.close_env()
 
 
@@ -228,8 +222,7 @@ async def test_test_form_1_init_data():
     data = await readfilejson('data', 'test_form_1_formio_data.json')
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     # model is in env.models
 
     test_form_1_model = env.get('test_form_1')
@@ -257,8 +250,7 @@ async def test_test_form_1_insert_ok():
     data = await readfilejson('data', 'test_form_1_formio_data.json')
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     # model exist in env models
     assert 'test_form_1' in list(env.models.keys())
     test_form_1_model = env.get('test_form_1')
@@ -267,7 +259,11 @@ async def test_test_form_1_insert_ok():
     assert test_form_1.is_error() is False
     assert test_form_1.get("owner_uid") == ""
     assert test_form_1.get("rec_name") == "first_form"
-    assert test_form_1.get('birthdate') == test_form_1_model.dte.parse_to_utc_datetime("1987-12-17T00:00:00+00:00")
+    assert test_form_1.get(
+        'birthdate'
+    ) == test_form_1_model.dte.parse_to_utc_datetime(
+        "1987-12-17T00:00:00+00:00"
+    )
 
     assert test_form_1.get('data_value.birthdate') == "17/12/1987"
     test_form_1_us = await test_form_1_model.insert(test_form_1)
@@ -275,12 +271,18 @@ async def test_test_form_1_insert_ok():
     assert test_form_1_us.get('appointmentDateTime') == BasicModel.iso_to_utc(
         '2022-05-25T11:30:00+00:00'
     )
-    assert test_form_1_us.data_value.get('appointmentDateTime') == "25/05/2022 13:30:00"
-    assert test_form_1_us.get("owner_uid") == test_form_1_model.user_session.get(
-        'uid'
+    assert (
+        test_form_1_us.data_value.get('appointmentDateTime')
+        == "25/05/2022 13:30:00"
     )
+    assert test_form_1_us.get(
+        "owner_uid"
+    ) == test_form_1_model.user_session.get('uid')
     assert test_form_1_us.get("rec_name") == "first_form"
-    assert test_form_1_us.create_datetime.date() == test_form_1_us.utc_now().date()
+    assert (
+        test_form_1_us.create_datetime.date()
+        == test_form_1_us.utc_now().date()
+    )
     await env.close_env()
 
 
@@ -289,8 +291,7 @@ async def test_test_form_1_insert_ko():
     data = await readfilejson('data', 'test_form_1_formio_data.json')
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     # model is in env.models
     assert 'test_form_1' in list(env.models.keys())
     test_form_1_model = env.get('test_form_1')
@@ -333,8 +334,7 @@ async def test_test_form_1_insert_ko():
 async def test_test_form_1_copy_record():
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     test_form_1_model = await env.add_model('test_form_1')
     test_form_1_copy = await test_form_1_model.copy({'rec_name': 'first_form'})
     assert test_form_1_copy.get("rec_name") == f"first_form_copy"
@@ -350,54 +350,91 @@ async def test_test_form_1_update_record():
     data = await readfilejson('data', 'test_form_1_formio_data.json')
     env = OzonEnv()
     await env.init_env()
-    env.params = {"current_session_token": "BA6BA930"}
-    await env.session_app()
+    await auth_env(env)
     test_form_1_model = await env.add_model('test_form_1')
     data['birthdate'] = '1987-12-18T12:00:00+02:00'
     test_form_1_upd = await test_form_1_model.upsert(data)
     assert test_form_1_upd.is_error() is False
-    assert test_form_1_upd.get('birthdate') == BasicModel.iso_to_utc('1987-12-18T00:00:00+00:00')
+    assert test_form_1_upd.get('birthdate') == BasicModel.iso_to_utc(
+        '1987-12-18T00:00:00+00:00'
+    )
     assert test_form_1_upd.get('appointmentDateTime') == BasicModel.iso_to_utc(
         '2022-05-25T11:30:00+00:00'
     )
-    assert test_form_1_upd.get('data_value.appointmentDateTime') == "25/05/2022 13:30:00"
+    assert (
+        test_form_1_upd.get('data_value.appointmentDateTime')
+        == "25/05/2022 13:30:00"
+    )
     assert test_form_1_upd.get('data_value.birthdate') == "18/12/1987"
-    assert test_form_1_upd.get('data_value.favouriteFood') == "Mexican, Chinese"
+    assert (
+        test_form_1_upd.get('data_value.favouriteFood') == "Mexican, Chinese"
+    )
 
     # Aggiorna la data con un oggetto datetime.date
-    test_form_1_upd.birthdate = CoreModel.iso_to_utc("1987-12-18T00:00:00Z").date()
-    test_form_1_upd.dataGrid = [{
-        "textField": "abc123",
-        "birthdateDg": "1990-12-31",
-        "appointmentDateTimeDg": "2000-01-01 21:00:00",
-        "checkbox": False,
-        "favouriteSeasonDg": "autumn"
-    }]
-    test_form_1_upd.dataGrid2 = [{
-        "textField": "zyx",
-        "birthdateDg": "2000-01-01T00:00:00Z",
-        "appointmentDateTimeDg": "2000-12-31T00:00:00+01:00",
-        "checkbox": False
-    }]
+    test_form_1_upd.birthdate = CoreModel.iso_to_utc(
+        "1987-12-18T00:00:00Z"
+    ).date()
+    test_form_1_upd.dataGrid = [
+        {
+            "textField": "abc123",
+            "birthdateDg": "1990-12-31",
+            "appointmentDateTimeDg": "2000-01-01 21:00:00",
+            "checkbox": False,
+            "favouriteSeasonDg": "autumn",
+        }
+    ]
+    test_form_1_upd.dataGrid2 = [
+        {
+            "textField": "zyx",
+            "birthdateDg": "2000-01-01T00:00:00Z",
+            "appointmentDateTimeDg": "2000-12-31T00:00:00+01:00",
+            "checkbox": False,
+        }
+    ]
     test_form_1_upd = await test_form_1_model.update(test_form_1_upd)
 
     assert type(test_form_1_upd.birthdate) == datetime
-    assert test_form_1_upd.birthdate == CoreModel.iso_to_utc("1987-12-18T00:00:00Z")
+    assert test_form_1_upd.birthdate == CoreModel.iso_to_utc(
+        "1987-12-18T00:00:00Z"
+    )
     assert test_form_1_upd.data_value.get("birthdate") == "18/12/1987"
     assert len(test_form_1_upd.dataGrid) == 1
-    assert test_form_1_upd.dataGrid[0].birthdateDg == CoreModel.iso_to_utc("1990-12-31T00:00:00Z")
-    assert test_form_1_upd.dataGrid[0].appointmentDateTimeDg == CoreModel.iso_to_utc("2000-01-01T21:00:00+01:00")
+    assert test_form_1_upd.dataGrid[0].birthdateDg == CoreModel.iso_to_utc(
+        "1990-12-31T00:00:00Z"
+    )
+    assert test_form_1_upd.dataGrid[
+        0
+    ].appointmentDateTimeDg == CoreModel.iso_to_utc(
+        "2000-01-01T21:00:00+01:00"
+    )
     assert test_form_1_upd.dataGrid[0].favouriteSeasonDg == "autumn"
     assert test_form_1_upd.dataGrid[0].data_value != {}
-    assert test_form_1_upd.dataGrid[0].data_value["birthdateDg"] == "31/12/1990"
-    assert test_form_1_upd.dataGrid[0].data_value["appointmentDateTimeDg"] == "01/01/2000 21:00:00"
-    assert test_form_1_upd.dataGrid[0].data_value["favouriteSeasonDg"] == "Autumn"
+    assert (
+        test_form_1_upd.dataGrid[0].data_value["birthdateDg"] == "31/12/1990"
+    )
+    assert (
+        test_form_1_upd.dataGrid[0].data_value["appointmentDateTimeDg"]
+        == "01/01/2000 21:00:00"
+    )
+    assert (
+        test_form_1_upd.dataGrid[0].data_value["favouriteSeasonDg"] == "Autumn"
+    )
     assert len(test_form_1_upd.dataGrid2) == 1
-    assert test_form_1_upd.dataGrid2[0].birthdateDg == CoreModel.iso_to_utc("2000-01-01T00:00:00Z")
-    assert test_form_1_upd.dataGrid2[0].appointmentDateTimeDg == CoreModel.iso_to_utc("2000-12-31T00:00:00+01:00")
+    assert test_form_1_upd.dataGrid2[0].birthdateDg == CoreModel.iso_to_utc(
+        "2000-01-01T00:00:00Z"
+    )
+    assert test_form_1_upd.dataGrid2[
+        0
+    ].appointmentDateTimeDg == CoreModel.iso_to_utc(
+        "2000-12-31T00:00:00+01:00"
+    )
     assert test_form_1_upd.dataGrid2[0].data_value != {}
-    assert test_form_1_upd.dataGrid2[0].data_value["birthdateDg"] == "01/01/2000"
-    assert test_form_1_upd.dataGrid2[0].data_value["appointmentDateTimeDg"] == "31/12/2000 00:00:00"
-
+    assert (
+        test_form_1_upd.dataGrid2[0].data_value["birthdateDg"] == "01/01/2000"
+    )
+    assert (
+        test_form_1_upd.dataGrid2[0].data_value["appointmentDateTimeDg"]
+        == "31/12/2000 00:00:00"
+    )
 
     await env.close_env()

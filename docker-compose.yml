@@ -1,25 +1,29 @@
 services:
 
   database:
-    image: mongo
+    image: mongo:latest
     restart: always
+    env_file:
+      - ./tests/.env-test
     environment:
-      MONGO_INITDB_ROOT_USERNAME: servicetest
-      MONGO_INITDB_ROOT_PASSWORD: servicetest
-      MONGO_INITDB_DATABASE: servicetest
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASS}
+      MONGO_INITDB_DATABASE: ${MONGO_DB}
     ports:
       - "10002:27017"
 
-
-  mongo-express:
-    image: mongo-express
-    restart: always
+  keycloak-ozn-test:
+    image: quay.io/keycloak/keycloak:latest
+    command:
+      - start-dev
+      - --import-realm
+      - --hostname=localhost
+    env_file:
+      - ./tests/.env-test
     ports:
-      - 9003:8081
-    environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: root
-      ME_CONFIG_MONGODB_ADMINPASSWORD: example
-      ME_CONFIG_MONGODB_URL: mongodb://servicetest:servicetest@database:27017
+      - "10765:8080"
+    volumes:
+      - ./tests/keycloak/realm:/opt/keycloak/data/import
 
   redis_cache:
     image: redis:latest

@@ -1,4 +1,5 @@
 import locale
+import os
 import traceback
 
 from ozonenv.OzonEnv import (
@@ -7,11 +8,14 @@ from ozonenv.OzonEnv import (
     OzonEnv,
     BasicReturn,
 )
-from ozonenv.core.OzonClient import OzonDataApiClient
 from ozonenv.core.BaseModels import CoreModel
 from ozonenv.core.ModelMaker import MainModel
 from ozonenv.core.OzonOrm import OzonModel, OzonModelRest
 from test_common import *
+from tests.helpers.rest_sidecar import (
+    RealOzonEnvApiServer,
+    build_test_db_cfg,
+)
 from dateutil.parser import parse
 
 pytestmark = pytest.mark.asyncio
@@ -24,8 +28,8 @@ class MockWorker1(OzonWorkerEnv):
             return self.exception_response(err=res.msg)
 
         data = await get_file_data()
-        self.p_model:OzonModel  = self.get(self.params.get("model"))
-        self.row_model:OzonModel = self.get("riga_doc")
+        self.p_model: OzonModel = self.get(self.params.get("model"))
+        self.row_model: OzonModel = self.get("riga_doc")
 
         assert self.p_model.it_depends == ['riga_doc']
         assert self.p_model.name == "documento_beni_servizi"
@@ -65,7 +69,7 @@ class MockWorker1(OzonWorkerEnv):
             }
             res_data = {
                 self.topic_name: result,
-                self.p_model.name: documento.get_dict_json()
+                self.p_model.name: documento.get_dict_json(),
             }
 
             return self.success_response(msg="Done", data=res_data)
@@ -352,13 +356,12 @@ class MockWorker2Api(OzonWorkerEnvRest):
 async def test_base_worker_env():
     worker = OzonWorkerEnv()
     await worker.init_env()
-    worker.params = {
-        "current_session_token": "BA6BA930",
-        "topic_name": "test_topic",
-        "document_type": "standard",
-        "model": "",
-        "session_is_api": False,
-    }
+    worker.params = await make_auth_params(
+        topic_name="test_topic",
+        document_type="standard",
+        model="",
+        session_is_api=False,
+    )
     await worker.session_app()
     assert worker.model == ""
     assert worker.topic_name == "test_topic"
@@ -366,24 +369,22 @@ async def test_base_worker_env():
     await worker.close_env()
 
 
-
-
 @pytestmark
 async def test_init_worker_ok():
     worker = MockWorker1()
+    params = await make_auth_params(
+        topic_name="test_topic",
+        document_type="standard",
+        model="documento_beni_servizi",
+        session_is_api=False,
+        action_next_page={
+            "success": {"form": "/open/doc"},
+        },
+    )
     res = await worker.make_app_session(
         use_cache=True,
         redis_url="redis://localhost:10001",
-        params={
-            "current_session_token": "BA6BA930",
-            "topic_name": "test_topic",
-            "document_type": "standard",
-            "model": "documento_beni_servizi",
-            "session_is_api": False,
-            "action_next_page": {
-                "success": {"form": "/open/doc"},
-            },
-        },
+        params=params,
     )
     assert res.fail is False
     assert res.data['test_topic']["error"] is False
@@ -395,96 +396,113 @@ async def test_init_worker_ok():
 
 
 @pytestmark
-async def test_worker2_api_with_rest_backend(monkeypatch, tmp_path):
-    monkeypatch.setenv("OZON_LOCALEDIR", get_i18n_localedir_tr())
-    monkeypatch.setenv("OZON_APPLANG", "it")
-    calls = []
-
-    async def fake_post_operation(self, operation_name, payload=None):
-        calls.append((operation_name, payload))
-        if operation_name == "find":
-            return {
-                "data": [
-                    {
-                        "rec_name": "api-user",
-                        "uid": "api-user",
-                        "password": "secret",
-                    }
-                ]
-            }
-        if operation_name == "insert":
-            return {
-                "data": {
-                    "rec_name": "api-user.new",
-                    "uid": "api-user.new",
-                    "password": "secret",
-                }
-            }
-        return {"data": {}}
-
-    monkeypatch.setattr(
-        OzonDataApiClient,
-        "post_operation",
-        fake_post_operation,
+async def test_worker2_api_with_rest_backend(tmp_path):
+    db_cfg = build_test_db_cfg(
+        tmp_path / "worker-api-db-models",
+        app_code=os.getenv("APP_CODE", "test"),
     )
+    db_env = OzonEnv(db_cfg)
+    await db_env.init_env()
+    await init_main_collections(db_env.db)
+    auth_res = await auth_env(db_env, username="adminuser")
+    assert auth_res.fail is False
 
-    worker = MockWorker2Api(
-        cfg={
-            "app_code": "test-rest-worker",
-            "models_folder": str(tmp_path / "models"),
-            "rest_token": "cfg-token",
+    user_collection = db_env.db.engine.get_collection("user")
+    await user_collection.delete_many(
+        {"uid": {"$in": ["api-user", "api-user.new"]}}
+    )
+    await user_collection.insert_one(
+        {
+            "rec_name": "api-user",
+            "uid": "api-user",
+            "nome": "Api",
+            "cognome": "User",
+            "mail": "api-user@example.test",
+            "function": "worker",
+            "active": True,
         }
     )
-    res = await worker.make_app_session(
-        params={
-            "topic_name": "test_topic",
-            "document_type": "standard",
-            "model": "user",
-            "session_is_api": True,
-        },
-        local_model={"user": User},
-        settings={
-            "rec_name": "test-rest-worker",
-            "upload_folder": "/uploads",
-            "tz": "Europe/Rome",
-        },
+    job_context = await db_env.create_job_context(
+        client_id=os.environ["OZON_M2M_CLIENT_ID"],
+        expire_sec=300,
+        job_key="job-worker-rest",
+        process_instance_key="proc-worker-rest",
     )
+    current_token = await get_auth_token(username="adminuser")
 
-    assert res.fail is False
-    assert res.data["test_topic"]["done"] is True
-    assert res.data["test_topic"]["error"] is False
-    assert res.data["test_topic"]["count"] == 1
-    assert res.data["test_topic"]["saved"] == "api-user.new"
-    assert res.data["test_topic"]["model"] == "user"
-    assert res.data["user"]["uid"] == "api-user.new"
-    assert [name for name, _payload in calls] == ["find", "insert"]
-    assert calls[0][1]["model"] == "user"
-    assert calls[1][1]["record"]["rec_name"] == "api-user.new"
-    assert worker.orm.__class__.__name__ == "OzonOrmRest"
-    assert worker.get("user").__class__ is OzonModelRest
-    assert (
-        worker.orm.rest_client.get_headers()["Authorization"]
-        == "Bearer cfg-token"
-    )
-    await worker.close_env()
+    try:
+        with RealOzonEnvApiServer(db_cfg) as api:
+            worker = MockWorker2Api(
+                cfg={
+                    "app_code": "test-rest-worker",
+                    "models_folder": str(tmp_path / "models"),
+                    "rest_base_url": api.base_url,
+                    "rest_oauth_url": os.environ["OZON_OAUTH_URL"],
+                    "rest_client_id": os.environ["OZON_M2M_CLIENT_ID"],
+                    "rest_client_secret": os.environ["OZON_M2M_CLIENT_SECRET"],
+                    "token_audience": os.environ["OZON_TOKEN_AUDIENCE"],
+                }
+            )
+            res = await worker.make_app_session(
+                params={
+                    "topic_name": "test_topic",
+                    "document_type": "standard",
+                    "model": "user",
+                    "session_is_api": True,
+                    "current_token": current_token,
+                    "job_token": job_context.job_token,
+                    "current_user": {
+                        "uid": "adminuser",
+                        "full_name": "Admin User",
+                        "mail": "admin@example.test",
+                    },
+                },
+                local_model={"user": User},
+                settings={
+                    "rec_name": "test-rest-worker",
+                    "upload_folder": "/uploads",
+                    "tz": "Europe/Rome",
+                },
+            )
+
+        assert res.fail is False
+        assert res.data["test_topic"]["done"] is True
+        assert res.data["test_topic"]["error"] is False
+        assert res.data["test_topic"]["count"] == 1
+        assert res.data["test_topic"]["saved"] == "api-user.new"
+        assert res.data["test_topic"]["model"] == "user"
+        assert res.data["user"]["uid"] == "api-user.new"
+        assert worker.orm.__class__.__name__ == "OzonOrmRest"
+        assert worker.get("user").__class__ is OzonModelRest
+        assert worker.orm.rest_client.get_headers()[
+            "Authorization"
+        ].startswith("Bearer ")
+        assert (
+            worker.orm.rest_client.get_headers()["job_token"]
+            == job_context.job_token
+        )
+        stored_user = await user_collection.find_one({"uid": "api-user.new"})
+        assert stored_user["uid"] == "api-user.new"
+    finally:
+        await db_env.close_env()
 
 
 @pytestmark
 async def test_init_worker_fail():
     worker = MockWorker1()
+    params = await make_auth_params(
+        topic_name="test_topic",
+        document_type="standard",
+        model="documento_beni_servizi",
+        session_is_api=False,
+        action_next_page={
+            "success": {"form": "/open/doc"},
+        },
+    )
     res = await worker.make_app_session(
         use_cache=True,
         redis_url="redis://localhost:10001",
-        params={
-            "current_session_token": "BA6BA930",
-            "topic_name": "test_topic",
-            "document_type": "standard",
-            "model": "documento_beni_servizi",
-            "session_is_api": False,
-            "action_next_page": {
-                "success": {"form": "/open/doc"},
-            },
-        },
+        params=params,
     )
     assert res.fail is True
     assert res.msg == "Errore Duplicato rec_name: DOC99999.1"
@@ -498,19 +516,19 @@ async def test_init_worker_fail():
 @pytestmark
 async def test_worker2_with_nested():
     worker = MockWorker2()
+    params = await make_auth_params(
+        topic_name="test_topic",
+        document_type="standard",
+        model="documento_beni_servizi",
+        session_is_api=False,
+        action_next_page={
+            "success": {"form": "/open/doc"},
+        },
+    )
     res = await worker.make_app_session(
         use_cache=True,
         redis_url="redis://localhost:10001",
-        params={
-            "current_session_token": "BA6BA930",
-            "topic_name": "test_topic",
-            "document_type": "standard",
-            "model": "documento_beni_servizi",
-            "session_is_api": False,
-            "action_next_page": {
-                "success": {"form": "/open/doc"},
-            },
-        },
+        params=params,
     )
     assert res.fail is False
     assert res.data['test_topic']["error"] is False

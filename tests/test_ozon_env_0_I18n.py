@@ -16,13 +16,15 @@ def test_I18n_make_lang_data():
     os.environ["OZON_LOCALEDIR"] = locale_dir
     i18n = I18n()
     i18n.make_language("it")
-    po_path = Path(locale_dir).joinpath(
-        'it/LC_MESSAGES/messages.po').absolute()
+    po_path = (
+        Path(locale_dir).joinpath('it/LC_MESSAGES/messages.po').absolute()
+    )
     with open(po_path, 'rb') as f:
         assert "# Italian translations for PROJECT." in str(f.read())
     i18n.make_language("en")
-    po_path = Path(locale_dir).joinpath(
-        'en/LC_MESSAGES/messages.po').absolute()
+    po_path = (
+        Path(locale_dir).joinpath('en/LC_MESSAGES/messages.po').absolute()
+    )
     with open(po_path, 'rb') as f:
         assert "# English translations for PROJECT." in str(f.read())
 
@@ -37,6 +39,6 @@ def test_I18n_test_transaltion():
     i18n.update_translations("it")
     a = b = "test"
     assert (
-            _("Duplicate key error %s: %s") % (a, b) ==
-            "Errore Duplicato test: test"
+        _("Duplicate key error %s: %s") % (a, b)
+        == "Errore Duplicato test: test"
     )

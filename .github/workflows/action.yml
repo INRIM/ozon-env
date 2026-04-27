@@ -48,14 +48,14 @@ jobs:
           poetry install --with dev --no-interaction
 
       - name: Start services
-        run: docker compose up -d --build
+        run: docker compose --env-file tests/.env-test up -d --build
 
       - name: Run tests
         run: poetry run pytest --cov --cov-report=xml
 
       - name: Stop services
         if: always()
-        run: docker compose down -v
+        run: docker compose --env-file tests/.env-test down -v
 
       - name: Coveralls
         if: matrix.python-version == '3.14'

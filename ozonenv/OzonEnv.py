@@ -11,7 +11,8 @@ logger = logging.getLogger(__file__)
 class OzonEnv(OzonEnvBase):
     def __init__(self, cfg={}, upload_folder="", cls_model=OzonModel):
         super().__init__(
-            cfg=cfg, upload_folder=upload_folder, cls_model=cls_model)
+            cfg=cfg, upload_folder=upload_folder, cls_model=cls_model
+        )
 
 
 class OzonEnvRest(OzonEnvBase):
@@ -19,7 +20,8 @@ class OzonEnvRest(OzonEnvBase):
         cfg = (cfg or {}).copy()
         cfg.setdefault("backend_interface", "rest")
         super().__init__(
-            cfg=cfg, upload_folder=upload_folder, cls_model=cls_model)
+            cfg=cfg, upload_folder=upload_folder, cls_model=cls_model
+        )
 
 
 class OzonWorkerEnvMixin:
@@ -31,14 +33,13 @@ class OzonWorkerEnvMixin:
 
     @classmethod
     def next_client_url(
-            cls, params: dict,
-            type_resp="success",
-            rec_ref="",
-            default_url="self") -> str:
+        cls, params: dict, type_resp="success", rec_ref="", default_url="self"
+    ) -> str:
         action_next_page = default_url
         if params.get("action_next_page"):
             next_page_cg = params.get("action_next_page", {}).get(
-                type_resp, {})
+                type_resp, {}
+            )
             if next_page_cg:
                 if next_page_cg.get("list"):
                     action_next_page = next_page_cg.get('list')
@@ -48,9 +49,8 @@ class OzonWorkerEnvMixin:
 
     @classmethod
     def worker_exception_response(
-            cls, topic, doc_type, model, err,
-            err_details="",
-            redirect_url="self"):
+        cls, topic, doc_type, model, err, err_details="", redirect_url="self"
+    ):
         result = {
             "done": True,
             "error": True,
@@ -58,19 +58,17 @@ class OzonWorkerEnvMixin:
             "document_type": doc_type,
             "model": model,
             "next_action": "redirect",
-            "next_page": redirect_url
+            "next_page": redirect_url,
         }
 
         return cls.fail_response(
-            err,
-            err_details=err_details,
-            data={
-                topic: result
-            })
+            err, err_details=err_details, data={topic: result}
+        )
 
     @classmethod
     def worker_success_default_response(
-            cls, topic, doc_type, model, msg="", redirect_url="self"):
+        cls, topic, doc_type, model, msg="", redirect_url="self"
+    ):
         result = {
             "done": True,
             "error": False,
@@ -78,53 +76,65 @@ class OzonWorkerEnvMixin:
             "document_type": doc_type,
             "model": model,
             "next_action": "redirect",
-            "next_page": redirect_url
+            "next_page": redirect_url,
         }
 
-
-        return cls.success_response(msg=msg, data={
-            topic: result
-        })
+        return cls.success_response(msg=msg, data={topic: result})
 
     def exception_response(
-            self, err, err_details="", redirect_url="self",
-            rec_ref=""):
+        self, err, err_details="", redirect_url="self", rec_ref=""
+    ):
         return self.worker_exception_response(
-            self.topic_name, self.doc_type, self.model,
-            err, err_details=err_details,
+            self.topic_name,
+            self.doc_type,
+            self.model,
+            err,
+            err_details=err_details,
             redirect_url=self.next_client_url(
-                params=self.params, type_resp="error",
+                params=self.params,
+                type_resp="error",
                 default_url=redirect_url,
-                rec_ref=rec_ref)
+                rec_ref=rec_ref,
+            ),
         )
 
     def default_response(self, msg="", redirect_url="self", rec_ref=""):
         return self.worker_success_default_response(
-            self.topic_name, self.doc_type, self.model,
+            self.topic_name,
+            self.doc_type,
+            self.model,
             msg=msg,
             redirect_url=self.next_client_url(
-                params=self.params, default_url=redirect_url, rec_ref=rec_ref)
+                params=self.params, default_url=redirect_url, rec_ref=rec_ref
+            ),
         )
 
     async def make_app_session(
-            self,
-            params: dict,
-            use_cache=False,
-            cache_idx="ozon_env",
-            redis_url="redis://redis_cache",
-            db=None,
-            local_model={},
-            local_model_private=None,
-            components=None,
-            sessions=None,
-            settings=None,
+        self,
+        params: dict,
+        use_cache=False,
+        cache_idx="ozon_env",
+        redis_url="redis://redis_cache",
+        db=None,
+        local_model={},
+        local_model_private=None,
+        components=None,
+        job_contexts=None,
+        settings=None,
     ) -> BasicReturn:
         self.topic_name = params.get('topic_name', "")
         res = await super().make_app_session(
-            params, use_cache=use_cache, cache_idx=cache_idx,
-            redis_url=redis_url, db=db, local_model=local_model,
+            params,
+            use_cache=use_cache,
+            cache_idx=cache_idx,
+            redis_url=redis_url,
+            db=db,
+            local_model=local_model,
             local_model_private=local_model_private,
-            components=components, sessions=sessions, settings=settings)
+            components=components,
+            job_contexts=job_contexts,
+            settings=settings,
+        )
         if res.fail:
             return self.exception_response(res.msg)
         return res
@@ -137,8 +147,9 @@ class OzonWorkerEnvMixin:
         self.topic_name = self.params.get('topic_name', "")
         self.model = self.params.get('model', "")
         self.ozon_client = OzonClient.create(
-            self.session_token, is_api=self.session_is_api,
-            url=os.getenv("OZON_CLIENT", "http://client:8526")
+            self.session_token,
+            is_api=self.session_is_api,
+            url=os.getenv("OZON_CLIENT", "http://client:8526"),
         )
         return self.default_response(msg="Done")
 
@@ -146,14 +157,13 @@ class OzonWorkerEnvMixin:
 class OzonWorkerEnv(OzonWorkerEnvMixin, OzonEnv):
     def __init__(self, cfg={}, upload_folder="", cls_model=OzonModel):
         super().__init__(
-            cfg=cfg, upload_folder=upload_folder, cls_model=cls_model)
+            cfg=cfg, upload_folder=upload_folder, cls_model=cls_model
+        )
         self._init_worker_state()
 
 
 class OzonWorkerEnvRest(OzonWorkerEnvMixin, OzonEnvRest):
-    def __init__(
-        self, cfg={}, upload_folder="", cls_model=OzonModelRest
-    ):
+    def __init__(self, cfg={}, upload_folder="", cls_model=OzonModelRest):
         super().__init__(
             cfg=cfg, upload_folder=upload_folder, cls_model=cls_model
         )

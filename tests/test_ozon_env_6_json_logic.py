@@ -105,12 +105,15 @@ class MockWorker3(MockWorker1):
                 }
             ]
         }
-        self.p_model.model.select_options("tipi_dettaglio",  [
+        self.p_model.model.select_options(
+            "tipi_dettaglio",
+            [
                 {'label': 'Bene', 'value': 'bene'},
                 {'label': 'Consumabile', 'value': 'consumabile'},
                 {'label': 'Servizio', 'value': 'servizio'},
                 {'label': 'Conto Terzi', 'value': 'conto_terzi'},
-            ])
+            ],
+        )
         assert len(self.p_model.model.select_options("tipi_dettaglio")) == 4
         return doc
 
@@ -118,19 +121,19 @@ class MockWorker3(MockWorker1):
 @pytestmark
 async def test_check_logic():
     worker = MockWorker3()
+    params = await make_auth_params(
+        topic_name="test_topic",
+        document_type="standard",
+        model="documento_beni_servizi",
+        session_is_api=False,
+        action_next_page={
+            "success": {"form": "/open/doc"},
+        },
+    )
     res = await worker.make_app_session(
         use_cache=True,
         redis_url="redis://localhost:10001",
-        params={
-            "current_session_token": "BA6BA930",
-            "topic_name": "test_topic",
-            "document_type": "standard",
-            "model": "documento_beni_servizi",
-            "session_is_api": False,
-            "action_next_page": {
-                "success": {"form": "/open/doc"},
-            },
-        },
+        params=params,
     )
     assert res.fail is False
     assert res.data['test_topic']["error"] is False
