@@ -31,12 +31,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "pip"
+          cache: pip
 
       - name: Configure locale
         run: |
           sudo apt-get update
-          sudo apt-get install -y locales
+          sudo apt-get install -y locales netcat-openbsd curl
           sudo locale-gen it_IT.UTF-8
           sudo update-locale LANG=it_IT.UTF-8
 
@@ -48,14 +48,71 @@ jobs:
           poetry install --with dev --no-interaction
 
       - name: Start services
-        run: docker compose --env-file tests/.env-test up -d --build
+        run: |
+          docker compose --env-file tests/.env-test up -d --build
+
+      - name: Wait for Mongo
+        run: |
+          for i in {1..60}; do
+            if nc -z localhost 10002; then
+              echo "Mongo is ready"
+              exit 0
+            fi
+            echo "Waiting for Mongo... ($i/60)"
+            sleep 2
+          done
+
+          echo "Mongo did not become ready in time"
+          docker compose ps
+          docker compose logs database || true
+          exit 1
+
+      - name: Wait for Redis
+        run: |
+          for i in {1..60}; do
+            if nc -z localhost 10003; then
+              echo "Redis is ready"
+              exit 0
+            fi
+            echo "Waiting for Redis... ($i/60)"
+            sleep 2
+          done
+
+          echo "Redis did not become ready in time"
+          docker compose ps
+          docker compose logs redis_cache || true
+          exit 1
+
+      - name: Wait for Keycloak
+        run: |
+          for i in {1..90}; do
+            if curl -fsS "http://localhost:10765/realms/test/.well-known/openid-configuration" > /dev/null; then
+              echo "Keycloak is ready"
+              exit 0
+            fi
+            echo "Waiting for Keycloak... ($i/90)"
+            sleep 2
+          done
+
+          echo "Keycloak did not become ready in time"
+          docker compose ps
+          docker compose logs keycloak-ozn-test || true
+          exit 1
 
       - name: Run tests
-        run: poetry run pytest --cov --cov-report=xml
+        run: |
+          poetry run pytest --cov --cov-report=xml -vv
+
+      - name: Show docker logs on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs || true
 
       - name: Stop services
         if: always()
-        run: docker compose --env-file tests/.env-test down -v
+        run: |
+          docker compose --env-file tests/.env-test down -v --remove-orphans
 
       - name: Coveralls
         if: matrix.python-version == '3.14'
