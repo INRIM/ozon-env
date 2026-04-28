@@ -8,7 +8,6 @@ pytestmark = pytest.mark.asyncio
 async def test_stream_and_find_large_dataset():
 
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
 
     model = env.get("test_form_1")
@@ -66,7 +65,6 @@ async def test_stream_and_find_large_dataset():
 @pytest.mark.asyncio
 async def test_search_distinct():
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
 
     model = env.get("test_form_1")
@@ -81,7 +79,6 @@ async def test_search_distinct():
 async def test_stream_memory_stable():
 
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
 
     model = env.get("test_form_1")
@@ -107,7 +104,6 @@ import uuid
 async def test_obfuscate_multiple_fields():
 
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
 
     model = env.get("test_form_1")
@@ -177,7 +173,6 @@ async def test_obfuscate_multiple_fields():
 async def test_stream_obfuscate_fields():
 
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
 
     model = env.get("test_form_1")

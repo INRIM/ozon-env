@@ -1,5 +1,7 @@
 import pytest
 from pathlib import Path
+
+from ozonenv.core.OzonOrm import OzonEnvBase
 from test_utils import *
 from ozonenv.core.BaseModels import BasicModel, User
 from tests.helpers.keycloak import get_keycloak_token
@@ -62,14 +64,12 @@ async def make_auth_params(
 
 
 @pytestmark
-async def auth_env(env, username="adminuser", password="adminpass", **extra):
+async def auth_env(
+    env: OzonEnvBase, username="adminuser", password="adminpass", **extra
+):
     if getattr(env, "db", None):
         await init_main_collections(env.db)
-    env.params = await make_auth_params(
-        username=username,
-        password=password,
-        **extra,
-    )
+    await env.login(username, password, **extra)
     return await env.session_app()
 
 

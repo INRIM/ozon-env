@@ -16,7 +16,11 @@ class DataValueService:
         self.model = model
         self.orm = orm
         self.dte = dte
-        self.tranform = self.model.tranform_data_value()
+        self.tranform = (
+            self.model.tranform_data_value()
+            if hasattr(self.model, "tranform_data_value")
+            else {}
+        )
 
     def readable_float(self, val, dp=2, g=True):
         if isinstance(val, str):

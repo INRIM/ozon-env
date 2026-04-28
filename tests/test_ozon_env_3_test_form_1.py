@@ -11,7 +11,6 @@ pytestmark = pytest.mark.asyncio
 @pytestmark
 async def test_env_orm_basic():
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     executed_cmd = await env.orm.runcmd("ls -alh")
     await env.orm.set_lang()
@@ -23,7 +22,6 @@ async def test_env_orm_basic():
 @pytestmark
 async def test_env_data_file_virtual_model():
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     data = await get_file_data()
     data['stato'] = "caricato"
@@ -75,7 +73,6 @@ async def test_env_data_file_virtual_model():
 @pytestmark
 async def test_component_test_form_1_init():
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     data = await readfilejson('data', 'test_form_1.0_formio_schema.json')
     component = await env.insert_update_component(data)
@@ -94,7 +91,6 @@ async def test_component_test_form_1_init():
 @pytestmark
 async def test_component_test_form_0_1_init_ok():
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     test_form_1_model = env.get('test_form_1')
     # Testa l'inserimento tramite metodo insert
@@ -142,7 +138,6 @@ async def test_component_test_form_0_1_init_ok():
 @pytestmark
 async def test_component_test_form_1_raw_update():
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     old_test_form_1_model = env.get('test_form_1')
     old_test_form_1 = await old_test_form_1_model.new()
@@ -168,7 +163,6 @@ async def test_component_test_form_1_raw_update():
 async def test_component_test_form_1_update():
     start_time = time_.monotonic()
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     old_test_form_1_model = env.get('test_form_1')
     old_test_form_1 = await old_test_form_1_model.new()
@@ -193,7 +187,6 @@ async def test_component_test_form_1_update():
 @pytestmark
 async def test_component_test_form_1_load():
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     component = await env.get('component').load({"rec_name": 'test_form_1'})
     assert component.owner_uid == "adminuser"
@@ -221,7 +214,6 @@ async def test_test_form_1_init_data():
     path = get_config_path()
     data = await readfilejson('data', 'test_form_1_formio_data.json')
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     # model is in env.models
 
@@ -249,7 +241,6 @@ async def test_test_form_1_insert_ok():
     path = get_config_path()
     data = await readfilejson('data', 'test_form_1_formio_data.json')
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     # model exist in env models
     assert 'test_form_1' in list(env.models.keys())
@@ -290,7 +281,6 @@ async def test_test_form_1_insert_ok():
 async def test_test_form_1_insert_ko():
     data = await readfilejson('data', 'test_form_1_formio_data.json')
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     # model is in env.models
     assert 'test_form_1' in list(env.models.keys())
@@ -333,7 +323,6 @@ async def test_test_form_1_insert_ko():
 @pytestmark
 async def test_test_form_1_copy_record():
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     test_form_1_model = await env.add_model('test_form_1')
     test_form_1_copy = await test_form_1_model.copy({'rec_name': 'first_form'})
@@ -349,7 +338,6 @@ async def test_test_form_1_copy_record():
 async def test_test_form_1_update_record():
     data = await readfilejson('data', 'test_form_1_formio_data.json')
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     test_form_1_model = await env.add_model('test_form_1')
     data['birthdate'] = '1987-12-18T12:00:00+02:00'

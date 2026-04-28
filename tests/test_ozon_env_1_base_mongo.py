@@ -70,10 +70,7 @@ async def test_init_env():
     await init_main_collections(env.db)
     user = env.db.engine.get_collection('user')
     users = await user.find({}).to_list(length=None)
-    assert len(users) == 2
-    stored_obj = await user.find_one({'uid': 'testuser'})
-    assert stored_obj['uid'] == "testuser"
-    assert stored_obj['is_public'] is False
+    assert len(users) == 1
     stored_obj = await user.find_one({'uid': 'adminuser'})
     assert stored_obj['uid'] == "adminuser"
     settings = env.db.engine.get_collection('settings')
@@ -110,6 +107,20 @@ async def test_make_app_session():
     assert env.orm.user_session.active is True
     assert env.orm.user_session.is_to_delete() is False
     assert env.orm.user_session.is_error() is False
+
+
+@pytestmark
+async def test_init_user():
+    env = OzonEnv()
+    assert env.cls_model.__name__ == "OzonModel"
+    await env.login("testuser", "testpass")
+    _user = await env.get('user').load({"uid": "testuser"})
+    assert _user.uid == "testuser"
+    assert env.orm.user_session.get('uid') == _user.uid
+    assert env.orm.user_session.active is True
+    assert env.orm.user_session.is_to_delete() is False
+    assert env.orm.user_session.is_error() is False
+    await env.close_db()
 
 
 @pytestmark

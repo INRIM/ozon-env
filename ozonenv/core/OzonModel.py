@@ -4,6 +4,8 @@ import json
 import locale
 import logging
 import re
+import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any, Union, AsyncIterator, Optional
 from typing_extensions import deprecated
@@ -20,12 +22,17 @@ from ozonenv.core.BaseModels import (
     Settings,
     BasicReturn,
     DictRecord,
+    OzonEnvCoreSettings,
     default_list_metadata,
     default_list_metadata_fields_update,
 )
 from ozonenv.core.DateEngine import DateEngine
 from ozonenv.core.ModelMaker import ModelMaker
-from ozonenv.core.ModelService import ModelService
+from ozonenv.core.ModelService import (
+    AttachmentError,
+    ModelService,
+    ServiceAttachment,
+)
 from ozonenv.core.exceptions import OzonPermissionError
 from ozonenv.core.i18n import _
 from ozonenv.core.utils import (
@@ -91,6 +98,7 @@ class OzonMBase:
             **{"fail": False, "msg": "", "data": {}}
         )
         self.tranform_data_value = {}
+        self.file_fields = {}
         self.rheader = False
         self.rfooter = False
         self.send_mail_create = False
@@ -105,6 +113,7 @@ class OzonMBase:
         self.it_depends = []
         self.service: ModelService
         self._transaction = False
+        self.file_dump_mode = "attachment"
 
     def is_data_value_runtime_enabled(self) -> bool:
         env = getattr(self, "env", None)
@@ -113,6 +122,89 @@ class OzonMBase:
         if not hasattr(env, "is_data_value_runtime_enabled"):
             return True
         return env.is_data_value_runtime_enabled(self.name)
+
+    def set_file_dump_mode(self, mode: str = "attachment") -> None:
+        dump_mode = str(mode or "attachment").strip().lower()
+        if dump_mode not in ["attachment", "base64"]:
+            raise ValueError("file_dump_mode must be attachment or base64")
+        self.file_dump_mode = dump_mode
+
+    def get_file_fields(self) -> dict:
+        file_fields = {}
+        if self.model and hasattr(self.model, "file_fields"):
+            file_fields = self.model.file_fields() or {}
+        elif self.mm:
+            file_fields = getattr(self.mm, "file_fields", {}) or {}
+        if not isinstance(file_fields, dict):
+            return {}
+        self.file_fields = copy.deepcopy(file_fields)
+        return copy.deepcopy(self.file_fields)
+
+    def _attachment_service(self) -> ServiceAttachment:
+        return ServiceAttachment()
+
+    async def _prepare_db_file_plan(
+        self,
+        record_data: dict,
+        rec_name: str,
+    ):
+        return await self.service.attachmentService.save_files(
+            model=self.model,
+            record=record_data,
+            data_model=self.data_model,
+            rec_name=rec_name,
+        )
+
+    async def _prepare_transport_record(self, record_data: dict) -> dict:
+        return await self.service.attachmentService.prepare_transport_files(
+            model=self.model,
+            record=record_data,
+        )
+
+    async def _prepare_loaded_record(
+        self,
+        model: type[CoreModel],
+        record_data: dict,
+        apply_file_dump: bool = True,
+    ) -> dict:
+        payload = copy.deepcopy(record_data)
+        if getattr(self, "interface_type", "db") != "db":
+            return payload
+        if not apply_file_dump or self.file_dump_mode != "base64":
+            return payload
+        return await self.service.attachmentService.dump_base64_files(
+            model=model,
+            record=payload,
+        )
+
+    async def _finalize_saved_files(
+        self,
+        attachments_to_save: list[dict],
+    ) -> None:
+        att_service = self.service.attachmentService
+        for attachment in attachments_to_save:
+            await att_service.move_attachment(attachment)
+
+    async def _discard_saved_files(
+        self,
+        attachments_to_save: list[dict],
+    ) -> None:
+        if not attachments_to_save:
+            return
+        await self.service.attachmentService.discard_attachments(
+            attachments_to_save
+        )
+
+    def _apply_record_file_dump_mode(self, record: CoreModel) -> None:
+        if getattr(self, "interface_type", "db") != "db":
+            record.disable_base64_file_dump()
+            return
+        if self.file_dump_mode == "base64":
+            record.enable_base64_file_dump(
+                self.service.attachmentService.local_settings.upload_folder
+            )
+            return
+        record.disable_base64_file_dump()
 
     def init_schema_properties(self):
         if self.schema.get("properties", {}):
@@ -139,12 +231,15 @@ class OzonMBase:
             self.model: BasicModel = self.static
             self.tranform_data_value = self.model.tranform_data_value()
             self.depends = self.model.model_depends()
+            self.file_fields = self.model.file_fields()
             self.service = ModelService(self.model, self.orm, self.tz)
         elif not self.static and not self.virtual:
             c_maker = ModelMaker("component", tz=self.setting_app.tz)
             c_maker.model = Component
             c_maker.new()
-            self.mm.from_formio(self.schema)
+            self.model = self.mm.from_formio(self.schema)
+            self.file_fields = self.mm.file_fields.copy()
+            self.service = ModelService(self.model, self.orm, self.tz)
 
     @classmethod
     def _value_type(cls, v):
@@ -296,9 +391,15 @@ class OzonMBase:
         tz,
         virtual_fields_parser,
         as_virtual=False,
+        apply_file_dump=True,
     ) -> tuple[CoreModel, ModelMaker]:
         mm = False
         if not virtual and not as_virtual:
+            data = await self._prepare_loaded_record(
+                model=model,
+                record_data=data,
+                apply_file_dump=apply_file_dump,
+            )
             data = model.normalize_datetime_fields(tz, data)
             if "_id" in data:
                 data["_id"] = str(data["_id"])
@@ -335,6 +436,25 @@ class OzonMBase:
             self.virtual_fields_parser,
             as_virtual=as_virtual,
         )
+        self._apply_record_file_dump_mode(self.modelr)
+
+    async def _load_record_for_diff(
+        self, domain: dict
+    ) -> Union[None, CoreModel]:
+        data = await self.load_raw(domain)
+        if self.status.fail:
+            return None
+        modelr, _ = await self._load_data(
+            self.model,
+            data,
+            self.virtual,
+            self.data_model,
+            self.tz,
+            self.virtual_fields_parser,
+            apply_file_dump=False,
+        )
+        modelr.disable_base64_file_dump()
+        return modelr
 
 
 class OzonModelBase(OzonMBase):
@@ -816,6 +936,7 @@ class OzonModelBase(OzonMBase):
         self, record: CoreModel, is_many=False
     ) -> Union[None, CoreModel]:
         self.init_status()
+        attachments_to_save: list[dict] = []
         if not self.chk_write_permission():
             msg = _("User is Readonly")
             self.error_status(msg, data={})
@@ -845,6 +966,12 @@ class OzonModelBase(OzonMBase):
             record.active = True
             data = record.get_dict(compute_datetime=False)
             if not self.virtual:
+                save_plan = await self._prepare_db_file_plan(
+                    data, record.rec_name
+                )
+                data = save_plan.record
+                attachments_to_save = save_plan.attachments_to_save
+            if not self.virtual:
                 data = record.normalize_datetime_fields(self.tz, data)
                 to_save = await self.make_data_value(
                     copy.deepcopy(data), pdata_value=data.get("data_value", {})
@@ -859,15 +986,26 @@ class OzonModelBase(OzonMBase):
             result = None
             result_save = await coll.insert_one(to_save)
             if result_save:
+                if not self.virtual:
+                    await self._finalize_saved_files(attachments_to_save)
                 return await self.load(
                     {"rec_name": to_save['rec_name']}, in_execution=True
                 )
+            if not self.virtual:
+                await self._discard_saved_files(attachments_to_save)
             self.error_status(
                 _("Error save  %s ") % str(to_save['rec_name']), to_save
             )
             return result
 
+        except AttachmentError as e:
+            if not self.virtual:
+                await self._discard_saved_files(attachments_to_save)
+            self.error_status(str(e), record.get_dict_copy())
+            return None
         except pymongo.errors.DuplicateKeyError as e:
+            if not self.virtual:
+                await self._discard_saved_files(attachments_to_save)
             logger.error(f" Duplicate {e.details['errmsg']}")
             field = e.details["keyValue"]
             key = list(field.keys())[0]
@@ -878,6 +1016,8 @@ class OzonModelBase(OzonMBase):
             )
             return None
         except pydantic.ValidationError as e:
+            if not self.virtual:
+                await self._discard_saved_files(attachments_to_save)
             logger.error(f" Validation {e}")
             self.error_status(
                 _("Validation Error  %s ") % str(e), record.get_dict_copy()
@@ -941,6 +1081,7 @@ class OzonModelBase(OzonMBase):
         force_update_whole_record=False,
     ) -> Union[None, CoreModel]:
         self.init_status()
+        attachments_to_save: list[dict] = []
         if not self.chk_write_permission():
             msg = _("User is Readonly")
             self.error_status(msg, data=record.get_dict_json())
@@ -952,11 +1093,22 @@ class OzonModelBase(OzonMBase):
             return None
         try:
             coll = self.db.engine.get_collection(self.data_model)
-            original = await self.load(record.rec_name_domain())
+            original = await self._load_record_for_diff(
+                record.rec_name_domain()
+            )
+            if not original:
+                return None
             if not self.virtual:
                 data = record.get_dict()
                 data["update_uid"] = self._user_uid(self.orm.user_session)
                 data["update_datetime"] = record.utc_now()
+                save_plan = await self._prepare_db_file_plan(
+                    data,
+                    record.rec_name,
+                )
+                data = save_plan.record
+                if not self.virtual:
+                    attachments_to_save = save_plan.attachments_to_save
                 data = self.model.normalize_datetime_fields(self.tz, data)
 
                 _save = await self.make_data_value(
@@ -976,8 +1128,17 @@ class OzonModelBase(OzonMBase):
             if "rec_name" in to_save:
                 to_save.pop("rec_name")
             await coll.update_one(record.rec_name_domain(), {"$set": to_save})
+            if not self.virtual:
+                await self._finalize_saved_files(attachments_to_save)
             return await self.load(record.rec_name_domain(), in_execution=True)
+        except AttachmentError as e:
+            if not self.virtual:
+                await self._discard_saved_files(attachments_to_save)
+            self.error_status(str(e), record.get_dict_copy())
+            return None
         except pymongo.errors.DuplicateKeyError as e:
+            if not self.virtual:
+                await self._discard_saved_files(attachments_to_save)
             logger.error(f" Duplicate {e.details['errmsg']}")
             field = e.details["keyValue"]
             key = list(field.keys())[0]
@@ -989,6 +1150,8 @@ class OzonModelBase(OzonMBase):
             return None
 
         except pydantic.ValidationError as e:
+            if not self.virtual:
+                await self._discard_saved_files(attachments_to_save)
             logger.error(f" Validation {e}")
             self.error_status(
                 _("Validation Error  %s ") % str(e),
@@ -996,6 +1159,7 @@ class OzonModelBase(OzonMBase):
             )
             return None
         except OperationFailure as e:
+            await self._discard_saved_files(attachments_to_save)
             logger.error(f" OperationFailure {e}")
             self.error_status(
                 _("OperationFailure Error  %s ") % str(e),

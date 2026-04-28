@@ -10,7 +10,6 @@ pytestmark = pytest.mark.asyncio
 @pytestmark
 async def test_add_user_static_model():
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     user_model = await env.add_static_model('u SEr', User, True)
     assert user_model.name == "user"
@@ -26,7 +25,6 @@ async def test_add_user_static_model():
 @pytestmark
 async def test_add_user_static_model_check_public():
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     user_model = await env.add_static_model('u SEr', User, True)
     users = await user_model.find({'uid': 'adminuser'})
@@ -355,7 +353,6 @@ async def test_init_schema_for_doc():
     schema_list2 = await get_formio_doc_riga_schema()
     schema_list3 = await get_formio_doc_schema2()
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     doc_schema = await env.insert_update_component(schema_list[0])
     assert doc_schema.rec_name == "documento"

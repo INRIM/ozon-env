@@ -7,7 +7,6 @@ pytestmark = pytest.mark.asyncio
 @pytestmark
 async def test_local_transaction():
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     env.local_transaction_start()
     test_form_1_model = env.get('test_form_1')

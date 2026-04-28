@@ -800,6 +800,7 @@ class BaseModelMaker:
         self.fields_logic = []
         self.realted_fields_logic = {}
         self.tranform_data_value = {}
+        self.file_fields = {}
         self.fields_limit_value = {}
         self.default_sort_str = "list_order:desc,"
         self.schema_object = None
@@ -1123,7 +1124,6 @@ class FormioModelMaker(BaseModelMaker):
         if self.parent_builder:
             builder = self.parent_builder
         if comp.get("type") == "select":
-
             field = selectComponent(comp, builder, input_type=compo_todo[0])
         elif comp.get("type") == "survey":
             field = surveyComponent(comp, builder, input_type=compo_todo[0])
@@ -1134,6 +1134,8 @@ class FormioModelMaker(BaseModelMaker):
         field.update_config()
         if comp.get("type") == "datetime":
             self.datetime_fields[field.key] = field.cfg.copy()
+        elif comp.get("type") == "file":
+            self.file_fields[field.key] = comp
         field.parent = self.parent
         if field.required:
             self.required_fields.append(field.key)

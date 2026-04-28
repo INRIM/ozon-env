@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import copy
 import json
 import logging
+import mimetypes
 import operator
+import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, date, time
 from functools import reduce
+from pathlib import Path
 from typing import Any, Optional, get_origin, get_args
 from typing import TypeVar, Generic, List, Dict
 from zoneinfo import ZoneInfo
@@ -19,7 +23,13 @@ from bson import Decimal128, Int64
 from dateutil.parser import parse
 from ozonenv.core.db.BsonTypes import PyObjectId, bson, BsonEncoder
 from ozonenv.core.utils import unwrap_optional
-from pydantic import BaseModel, Field, field_serializer, AwareDatetime
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    Field,
+    PrivateAttr,
+    field_serializer,
+)
 
 defaultdt = '1970-01-01T00:00:00+00:00'
 
@@ -157,6 +167,13 @@ export_list_metadata = [
 ]
 
 
+def _read_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class DbViewModel(BaseModel):
     name: str
     model: str
@@ -165,6 +182,8 @@ class DbViewModel(BaseModel):
 
 
 class MainModel(BaseModel):
+    _file_dump_mode: str = PrivateAttr(default="attachment")
+    _file_dump_upload_folder: str = PrivateAttr(default="")
 
     @classmethod
     def str_name(cls, *args, **kwargs):
@@ -177,7 +196,70 @@ class MainModel(BaseModel):
         d = self.model_copy(deep=True).model_dump(
             exclude=set().union(basic, exclude)
         )
+        if self._file_dump_mode == "base64":
+            d = self._dump_file_fields_as_base64(d)
         return d
+
+    def enable_base64_file_dump(self, upload_folder: str) -> None:
+        self._file_dump_mode = "base64"
+        self._file_dump_upload_folder = str(upload_folder or "").strip()
+
+    def disable_base64_file_dump(self) -> None:
+        self._file_dump_mode = "attachment"
+        self._file_dump_upload_folder = ""
+
+    def _dump_file_fields_as_base64(self, data: dict) -> dict:
+        if not self._file_dump_upload_folder:
+            return data
+        file_fields = {}
+        if hasattr(self.__class__, "file_fields"):
+            file_fields = self.__class__.file_fields() or {}
+        if not isinstance(file_fields, dict) or not file_fields:
+            return data
+        upload_root = Path(self._file_dump_upload_folder).expanduser()
+        for field_key in file_fields.keys():
+            if field_key not in data:
+                continue
+            data[field_key] = self._dump_attachment_value_as_base64(
+                data.get(field_key),
+                upload_root,
+            )
+        return data
+
+    def _dump_attachment_value_as_base64(
+        self,
+        value: Any,
+        upload_root: Path,
+    ) -> list[Any]:
+        items = value if isinstance(value, list) else [value]
+        dumped: list[Any] = []
+        for item in items:
+            if not isinstance(item, dict):
+                dumped.append(item)
+                continue
+            required = {"filename", "file_path", "url", "key"}
+            if not required.issubset(item.keys()):
+                dumped.append(copy.deepcopy(item))
+                continue
+            relative_dir = str(item.get("file_path") or "").strip("/")
+            file_name = str(item.get("filename") or "").strip()
+            if not relative_dir or not file_name:
+                dumped.append(copy.deepcopy(item))
+                continue
+            file_path = upload_root / relative_dir / file_name
+            if not file_path.exists() or not file_path.is_file():
+                dumped.append(copy.deepcopy(item))
+                continue
+            payload = copy.deepcopy(item)
+            payload["content_type"] = payload.get("content_type") or (
+                mimetypes.guess_type(file_path.name)[0]
+                or "application/octet-stream"
+            )
+            payload["base64"] = base64.b64encode(
+                file_path.read_bytes()
+            ).decode("utf-8")
+            dumped.append(payload)
+        return dumped
 
     def get_dict_json(self, exclude=[]):
         return json.loads(
@@ -190,6 +272,9 @@ class MainModel(BaseModel):
 
     def get_dict_copy(self):
         return copy.deepcopy(self.get_dict())
+
+    async def dump_model_dict_async(self) -> dict:
+        return await asyncio.to_thread(self.get_dict)
 
     def get_dict_diff(
         self, to_compare_dict, ignore_fields=[], remove_ignore_fileds=True
@@ -253,6 +338,32 @@ class MainModel(BaseModel):
         # old = getattr(self, key)
         setattr(self, key, value)
         # self.on_field_change(key, old, value)
+
+    def addfile(self, field_key: str, value: Any) -> None:
+        file_fields = {}
+        if hasattr(self.__class__, "file_fields"):
+            file_fields = self.__class__.file_fields() or {}
+        field_config = file_fields.get(field_key)
+        if not isinstance(field_config, dict):
+            raise ValueError(f"Field '{field_key}' is not a file field")
+        items = value if isinstance(value, list) else [value]
+        items = [item for item in items if item not in [None, ""]]
+        is_multiple = bool(field_config.get("multiple", False))
+        if not is_multiple and len(items) > 1:
+            raise ValueError(
+                f"Field '{field_key}' does not accept multiple files"
+            )
+        if is_multiple:
+            current = getattr(self, field_key, None)
+            current_items = (
+                current
+                if isinstance(current, list)
+                else [current] if current not in [None, ""] else []
+            )
+            current_items.extend(items)
+            setattr(self, field_key, current_items)
+            return
+        setattr(self, field_key, items[:1] if items else [])
 
     def add_text(self, key, value: str, prefix: str = ""):
         val = getattr(self, key)
@@ -694,6 +805,10 @@ class BasicModel(CoreModel):
 
     @classmethod
     def table_columns(cls) -> dict:
+        return {}
+
+    @classmethod
+    def file_fields(cls) -> dict:
         return {}
 
 
@@ -1837,3 +1952,109 @@ class DataReturn(Generic[D]):
     data: D | None = None
     fail: bool = False
     msg: str = ""
+
+
+@dataclass(frozen=True)
+class OzonEnvCoreSettings:
+    app_code: str | None = None
+    mongo_user: str | None = None
+    mongo_pass: str | None = None
+    mongo_url: str | None = None
+    mongo_db: str | None = None
+    mongo_replica: str | None = None
+    models_folder: str | None = None
+    api_prefix: str = "/v2"
+    require_auth: bool = True
+    auth_mode: str = "session"
+    oauth_url: str | None = None
+    oauth_client_id: str | None = None
+    token_audience: str | None = None
+    keycloak_jwks_url_value: str | None = None
+    keycloak_issuer_value: str | None = None
+    keycloak_algorithms: str = "RS256"
+    bootstrap_user_file: str = "base_data/user.json"
+    upload_folder: str = "/tmp/ozon-env-api/uploads"
+    tmp_upload_folder: str = "/tmp"
+    backend_interface: str = "db"
+
+    @classmethod
+    def from_env(cls) -> "OzonEnvCoreSettings":
+        return cls(
+            app_code=os.getenv("APP_CODE"),
+            mongo_user=os.getenv("MONGO_USER"),
+            mongo_pass=os.getenv("MONGO_PASS"),
+            mongo_url=os.getenv("MONGO_URL"),
+            mongo_db=os.getenv("MONGO_DB"),
+            mongo_replica=os.getenv("MONGO_REPLICA"),
+            models_folder=os.getenv("MODELS_FOLDER"),
+            api_prefix=os.getenv("OZON_API_PREFIX", "/v2"),
+            require_auth=_read_bool("OZON_API_REQUIRE_AUTH", True),
+            auth_mode=os.getenv("OZON_AUTH_MODE", "session"),
+            oauth_url=os.getenv("OZON_OAUTH_URL"),
+            oauth_client_id=os.getenv("OZON_CLIENT_ID"),
+            token_audience=os.getenv("OZON_TOKEN_AUDIENCE") or None,
+            keycloak_jwks_url_value=os.getenv("OZON_KEYCLOAK_JWKS_URL"),
+            keycloak_issuer_value=os.getenv("OZON_KEYCLOAK_ISSUER"),
+            keycloak_algorithms=os.getenv("OZON_KEYCLOAK_ALGORITHMS", "RS256"),
+            bootstrap_user_file=os.getenv(
+                "OZON_BOOTSTRAP_USER_FILE",
+                "base_data/user.json",
+            ),
+            upload_folder=(
+                os.getenv("OZON_UPOLOAD_FOLDER")
+                or os.getenv("OZON_UPOLOAD_FOLDER")
+                or "/data/uploads"
+            ),
+            tmp_upload_folder=os.getenv("OZON_ENV_TMP_UPLOAD_FOLDER", "/tmp"),
+            backend_interface=os.getenv("OZON_BACKEND_INTERFACE", "db"),
+        )
+
+    def normalized_api_prefix(self) -> str:
+        return "/" + str(self.api_prefix or "/v2").strip("/")
+
+    def normalized_auth_mode(self) -> str:
+        mode = str(self.auth_mode or "session").strip().lower()
+        if mode in {"m2m", "keycloak_m2m"}:
+            return "keycloak"
+        if mode in {"none", "disabled"}:
+            return "none"
+        if mode not in {"session", "keycloak"}:
+            return "session"
+        return mode
+
+    def keycloak_jwks_url(self) -> str:
+        if self.keycloak_jwks_url_value:
+            return self.keycloak_jwks_url_value
+        if not self.oauth_url:
+            return ""
+        return self.oauth_url.rstrip("/").removesuffix("/token") + "/certs"
+
+    def keycloak_issuer(self) -> str:
+        if self.keycloak_issuer_value:
+            return self.keycloak_issuer_value
+        if not self.oauth_url:
+            return ""
+        marker = "/protocol/openid-connect/token"
+        if marker in self.oauth_url:
+            return self.oauth_url.split(marker, maxsplit=1)[0]
+        return ""
+
+    def keycloak_algorithms_list(self) -> list[str]:
+        return [
+            item.strip()
+            for item in self.keycloak_algorithms.split(",")
+            if item.strip()
+        ]
+
+    def ozon_env_cfg(self) -> dict:
+        cfg = {
+            "app_code": self.app_code,
+            "mongo_user": self.mongo_user,
+            "mongo_pass": self.mongo_pass,
+            "mongo_url": self.mongo_url,
+            "mongo_db": self.mongo_db,
+            "mongo_replica": self.mongo_replica,
+            "models_folder": self.models_folder,
+            "backend_interface": "db",
+        }
+        return {key: value for key, value in cfg.items() if value is not None}

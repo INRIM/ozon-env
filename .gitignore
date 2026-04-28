@@ -13,3 +13,4 @@ tests/models
 models
 localexample
 run_test_dev.sh
+tests/uploads

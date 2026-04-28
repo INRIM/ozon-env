@@ -7,7 +7,6 @@ pytestmark = pytest.mark.asyncio
 @pytestmark
 async def test_riga_doc_select_model_distinct():
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     riga_doc_model = env.get('riga_doc')
 
@@ -33,7 +32,6 @@ async def test_riga_doc_select_model_distinct():
 @pytestmark
 async def test_riga_doc_select_url():
     env = OzonEnv()
-    await env.init_env()
     await auth_env(env)
     test_form_1_model = env.get('test_form_1')
 

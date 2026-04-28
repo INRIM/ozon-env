@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Optional, Union
 
 import aiofiles
+import httpx
 from aiopathlib import AsyncPath
 from ozonenv.core.BaseModels import (
     DbViewModel,
@@ -27,7 +28,7 @@ from ozonenv.core.BaseModels import (
     JobContext,
     User,
 )
-from ozonenv.core.ModelService import ModelService
+from ozonenv.core.ModelService import AttachmentError, ModelService
 from ozonenv.core.OzonClient import (
     OzonClient,
     OzonDataApiClient,
@@ -91,6 +92,9 @@ class OzonEnvBase:
                 "oauth_url": os.getenv("OZON_OAUTH_URL"),
                 "client_id": os.getenv("OZON_CLIENT_ID"),
                 "client_secret": os.getenv("OZON_CLIENT_SECRET"),
+                "upload_folder": os.getenv(
+                    "OZON_UPOLOAD_FOLDER", "/data/uploads"
+                ),
             }
         else:
             self.config_system = cfg.copy()
@@ -565,6 +569,55 @@ class OzonEnvBase:
         )
         await self.orm.init_models()
 
+    async def get_auth_token(
+        self,
+        username: str = "testuser",
+        password: str = "testpass",
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        oauth_url: str | None = None,
+    ) -> str:
+        token_url = oauth_url or os.environ["OZON_OAUTH_URL"]
+
+        data = {
+            "grant_type": "password",
+            "client_id": client_id or os.environ["OZON_CLIENT_ID"],
+            "client_secret": client_secret or os.environ["OZON_CLIENT_SECRET"],
+            "username": username,
+            "password": password,
+            "audience": client_id or os.environ["OZON_TOKEN_AUDIENCE"],
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(token_url, data=data)
+            response.raise_for_status()
+            payload = response.json()
+
+        return payload["access_token"]
+
+    async def make_auth_params(
+        self, username="adminuser", password="adminpass", **extra
+    ) -> dict:
+        params = {
+            "current_token": await self.get_auth_token(
+                username=username,
+                password=password,
+            )
+        }
+        params.update(extra)
+        return params
+
+    async def login(
+        self,
+        username,
+        password,
+        **extra,
+    ):
+        await self.init_env()
+        self.params = await self.make_auth_params(
+            username=username, password=password, **extra
+        )
+        return await self.session_app()
+
     async def close_env(self):
         if self.is_db_local:
             await self.close_db()
@@ -972,6 +1025,13 @@ class OzonOrm:
             },
         )
 
+    @classmethod
+    def extract_auth_roles(cls, claims: dict[str, Any]) -> list[str]:
+        roles = claims.get("realm_access", {}).get("roles", [])
+        if not isinstance(roles, list):
+            roles = []
+        return [str(role).strip() for role in roles if str(role).strip()]
+
     def build_auth_user(
         self,
         verified: Any,
@@ -981,6 +1041,7 @@ class OzonOrm:
         claims = copy.deepcopy(verified.claims)
         uid = verified.user_id or default_uid
         data = user_record.get_dict_copy() if user_record else {}
+        roles = self.extract_auth_roles(claims)
         if user_record:
             full_name = (
                 getattr(user_record, "full_name", "")
@@ -1000,6 +1061,14 @@ class OzonOrm:
         groups = (
             getattr(user_record, "groups", []) if user_record else []
         ) or claims.get("groups", [])
+        if not isinstance(groups, list):
+            groups = []
+        given_name = (
+            getattr(user_record, "nome", "") if user_record else ""
+        ) or claims.get("given_name", "")
+        family_name = (
+            getattr(user_record, "cognome", "") if user_record else ""
+        ) or claims.get("family_name", "")
         user = {
             "uid": uid,
             "full_name": full_name,
@@ -1008,6 +1077,27 @@ class OzonOrm:
             "qualifica": "",
         }
         rec_name = getattr(user_record, "rec_name", "") if user_record else uid
+        if not user_record:
+            data.update(
+                {
+                    "nome": given_name,
+                    "cognome": family_name,
+                    "active": True,
+                    "use_auth": True,
+                    "is_admin": "admin" in roles,
+                    "tech_admin": "admin" in roles,
+                    "is_public": False,
+                    "user_role": roles or ["base"],
+                    "user_function": (
+                        ("admin" if "admin" in roles else roles[0])
+                        if roles
+                        else "user"
+                    ),
+                    "default": True,
+                    "demo": False,
+                    "tz": self.tz or "Europe/Rome",
+                }
+            )
         data.update(
             {
                 "rec_name": rec_name or uid,
@@ -1027,6 +1117,30 @@ class OzonOrm:
             exclude_unset=True,
             check_fields=False,
         )
+
+    async def save_user(self, user: User, last_login: Any = None):
+        user.create_datetime = BasicModel.utc_now()
+        if last_login:
+            user.last_login = last_login
+        user.list_order = (
+            await self.db.engine.get_collection("user").count_documents({})
+        ) + 1
+        data = user.get_dict_copy()
+        data.pop("id", None)
+        try:
+            await self.db.engine.get_collection("user").insert_one(data)
+        except Exception:
+            existing_user = await self.load_user_by_uid(user.uid)
+            if existing_user:
+                return existing_user
+            raise
+        return await self.load_user_by_uid(user.uid)
+
+    async def provision_auth_user(self, verified: Any) -> Optional[User]:
+        if not self.db:
+            return self.build_auth_user(verified)
+        user = self.build_auth_user(verified)
+        return await self.save_user(user, BasicModel.utc_now())
 
     async def authenticate_user_token(self, token_input) -> Any:
         access_token, refresh_token, token_data = self._normalize_token_input(
@@ -1064,6 +1178,8 @@ class OzonOrm:
     async def init_auth(self, token_input, job_token: str = ""):
         verified = await self.authenticate_user_token(token_input)
         user_record = await self.load_user_by_uid(verified.user_id)
+        if not user_record:
+            user_record = await self.provision_auth_user(verified)
         if not user_record:
             raise TokenVerificationError("User not found")
         if not user_record.active:
@@ -1380,7 +1496,10 @@ class OzonOrm:
     @classmethod
     def nested_transform_data_value(cls):
         return {mod.mm.nested_transform_data_value}
-        
+    
+    @classmethod
+    def file_fields(cls) -> dict:
+        return {mod.mm.file_fields}
 
 """
         async with aiofiles.open(
@@ -2087,12 +2206,19 @@ class OzonModelRestBase(OzonModelBase):
             record.active = True
             self._local_store().append(record.get_dict_json())
             return await self.load(record.rec_name_domain())
+        try:
+            record_payload = await self._prepare_transport_record(
+                record.get_dict()
+            )
+        except AttachmentError as e:
+            self.error_status(str(e), record.get_dict_copy())
+            return None
         result = await self._post_remote(
             "insert",
             {
                 "model": self.name,
                 "data_model": self.data_model,
-                "record": record.get_dict_json(),
+                "record": make_json_compatible(record_payload),
                 "is_many": is_many,
             },
         )
@@ -2129,12 +2255,19 @@ class OzonModelRestBase(OzonModelBase):
                     return await self.load(record.rec_name_domain())
             self.error_status(_("Not found"), record.rec_name_domain())
             return None
+        try:
+            record_payload = await self._prepare_transport_record(
+                record.get_dict()
+            )
+        except AttachmentError as e:
+            self.error_status(str(e), record.get_dict_copy())
+            return None
         result = await self._post_remote(
             "update",
             {
                 "model": self.name,
                 "data_model": self.data_model,
-                "record": record.get_dict_json(),
+                "record": make_json_compatible(record_payload),
                 "remove_mata": remove_mata,
                 "force_update_whole_record": force_update_whole_record,
             },

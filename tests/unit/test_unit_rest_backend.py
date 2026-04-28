@@ -47,6 +47,41 @@ async def test_db_user_auth_uses_real_keycloak_and_persists_token(tmp_path):
         await env.close_env()
 
 
+async def test_db_user_auth_provisions_missing_user_from_valid_jwt(tmp_path):
+    cfg = build_test_db_cfg(
+        tmp_path / "db-auth-provision",
+        app_code=os.getenv("APP_CODE", "test"),
+    )
+    env = OzonEnv(cfg)
+    await env.init_env()
+    await init_main_collections(env.db)
+    try:
+        user_collection = env.db.engine.get_collection("user")
+        await user_collection.delete_many({"uid": "testuser"})
+
+        result = await auth_env(
+            env,
+            username="testuser",
+            password="testpass",
+        )
+        stored_user = await user_collection.find_one({"uid": "testuser"})
+
+        assert result.fail is False
+        assert env.user_session.uid == "testuser"
+        assert stored_user is not None
+        assert stored_user["rec_name"] == "testuser"
+        assert stored_user["full_name"] == "Test User"
+        assert stored_user["nome"] == "Test"
+        assert stored_user["cognome"] == "User"
+        assert stored_user["user_role"] == ["user"]
+        assert stored_user["is_admin"] is False
+        assert stored_user["active"] is True
+        assert stored_user["token"]["access_token"] == env.session_token
+        assert stored_user["last_login"] is not None
+    finally:
+        await env.close_env()
+
+
 async def test_jobcontext_crud_and_real_m2m_validation(tmp_path):
     env, cfg = await _authenticated_env(tmp_path, name="jobcontext-db")
     api_env = None
