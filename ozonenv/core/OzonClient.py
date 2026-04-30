@@ -69,7 +69,7 @@ class OzonDataApiClient:
     def create(
         cls,
         base_url="",
-        api_prefix="/base_usr/v2",
+        api_prefix="/v2",
         token="",
         job_token="",
         oauth_url="",
@@ -80,7 +80,7 @@ class OzonDataApiClient:
     ):
         self = OzonDataApiClient()
         self.base_url = str(base_url or "").rstrip("/")
-        self.api_prefix = "/" + str(api_prefix or "base_usr/v2").strip("/")
+        self.api_prefix = "/" + str(api_prefix or "/v2").strip("/")
         self.token = token or ""
         self.job_token = job_token or ""
         self.oauth_url = oauth_url or os.getenv("OZON_OAUTH_URL", "")

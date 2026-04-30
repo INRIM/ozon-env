@@ -1,8 +1,6 @@
 {
   "rec_name": "test",
-  "app_code": [
-    "test"
-  ],
+  "app_code":"test",
   "init_db": false,
   "module_name": "test-service",
   "module_label": "test Service",
@@ -54,7 +52,7 @@
   "external_proxy_uri_configs": [
       {
         "id": "6300d3718540ea7c523af8d1",
-        "app_code": [],
+        "app_code": "",
         "parent": "",
         "process_id": "",
         "process_task_id": "",
@@ -85,7 +83,7 @@
       },
       {
         "id": "6300d3718540ea7c523af8d2",
-        "app_code": [],
+        "app_code": "",
         "parent": "",
         "process_id": "",
         "process_task_id": "",
@@ -116,7 +114,7 @@
       },
       {
         "id": "6300d3718540ea7c523af8d3",
-        "app_code": [],
+        "app_code": "",
         "parent": "",
         "process_id": "",
         "process_task_id": "",

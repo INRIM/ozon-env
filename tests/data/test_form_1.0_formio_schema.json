@@ -2,9 +2,7 @@
   "rec_name": "test_form_1",
   "key": "test_form_1",
   "title": "Test Form 1",
-  "app_code": [
-    "test"
-  ],
+  "app_code": "test",
   "type": "form",
   "owner_name": "Admin Admin",
   "owner_uid": "adminuser",

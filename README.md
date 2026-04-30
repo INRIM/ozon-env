@@ -163,8 +163,8 @@ In this mode:
 
 ```bash
 export OZON_BACKEND_INTERFACE=rest
-export OZON_REST_BASE_URL=http://base_usr
-export OZON_REST_API_PREFIX=/base_usr/v2
+export OZON_REST_BASE_URL=http:/
+export OZON_REST_API_PREFIX=/v2
 export OZON_OAUTH_URL=https://keycloak.example/realms/demo/protocol/openid-connect/token
 export OZON_CLIENT_ID=...
 export OZON_CLIENT_SECRET=...
@@ -193,7 +193,7 @@ In this mode:
 Expected REST path pattern:
 
 ```text
-POST {OZON_REST_BASE_URL}/base_usr/v2/{operation_name}
+POST {OZON_REST_BASE_URL}/v2/{operation_name}
 ```
 
 REST API specification:
@@ -339,8 +339,8 @@ DB responsibilities:
 REST bootstrap endpoints used by `OzonOrmRest.init_db_models()`:
 
 ```text
-GET {OZON_REST_BASE_URL}/base_usr/v2/collections_names
-GET {OZON_REST_BASE_URL}/base_usr/v2/init_settings/{app_code}
+GET {OZON_REST_BASE_URL}/v2/collections_names
+GET {OZON_REST_BASE_URL}/v2/init_settings/{app_code}
 ```
 
 ## REST Initialization Example
@@ -351,8 +351,8 @@ from ozonenv.OzonEnv import OzonEnvRest
 env = OzonEnvRest(
     {
         "app_code": "demo",
-        "rest_base_url": "http://base_usr",
-        "rest_api_prefix": "/base_usr/v2",
+        "rest_base_url": "http:/",
+        "rest_api_prefix": "/v2",
         "rest_token": "<m2m-token>",
         "rest_oauth_url": "https://keycloak.example/realms/demo/protocol/openid-connect/token",
         "rest_client_id": "...",
@@ -405,8 +405,8 @@ from ozonenv.OzonEnv import OzonWorkerEnvRest
 worker = OzonWorkerEnvRest(
     {
         "app_code": "demo",
-        "rest_base_url": "http://base_usr",
-        "rest_api_prefix": "/base_usr/v2",
+        "rest_base_url": "http:/",
+        "rest_api_prefix": "/v2",
         "rest_token": "<m2m-token>",
     }
 )

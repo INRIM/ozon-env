@@ -580,7 +580,7 @@ class CoreModel(MainModel):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
     data_model: str = ""
     rec_name: str = ""
-    app_code: List = Field(default=[])
+    app_code: str | None = None
     parent: str = ""
     process_id: str = ""
     process_task_id: str = ""

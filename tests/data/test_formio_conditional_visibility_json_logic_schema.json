@@ -2,9 +2,7 @@
   "rec_name": "test_form_cv",
   "key": "test_form_cv",
   "title": "Test Form Conditionl visibility",
-  "app_code": [
-    "test"
-  ],
+  "app_code": "test",
   "type": "form",
   "owner_name": "Admin Admin",
   "owner_uid": "adminuser",
