@@ -126,6 +126,43 @@ pip install poetry
 poetry install
 ```
 
+## Configuration
+
+`OzonEnvCoreSettings.from_env()` supports two configuration sources.
+
+### Option 1 — YAML file (recommended for local development)
+
+Create `.ozonenv/config.yaml` in the project root.  
+If the file exists it takes full precedence over environment variables.
+
+```bash
+mkdir .ozonenv
+cp config.yaml.example .ozonenv/config.yaml
+# edit .ozonenv/config.yaml
+```
+
+`.ozonenv/` is listed in `.gitignore` — the file is never committed.  
+`config.yaml.example` (committed) documents all available fields.
+
+**`${VAR}` interpolation** — string values can reference environment variables:
+
+```yaml
+app_code: ${APP_CODE}
+mongo_url: ${MONGO_URL}
+api_prefix: /v2          # literal value, no interpolation
+require_auth: true       # booleans and integers pass through as-is
+```
+
+If `${VAR}` is the entire value and the variable is not set, the key is omitted
+and the Pydantic field default is used instead.
+
+### Option 2 — Environment variables
+
+If `.ozonenv/config.yaml` is absent, settings are read from environment
+variables (original behaviour — see sections below).
+
+---
+
 ## Backend Interface
 
 ### Default DB mode

@@ -1,0 +1,76 @@
+# OzonEnvCoreSettings — configurazione locale
+#
+# Copiare in .ozonenv/config.yaml nella root del progetto.
+# Se il file esiste ha precedenza sulle variabili d'ambiente.
+# Sintassi ${VAR}: legge da env var. Se la var non è impostata il campo
+# usa il default della classe.
+# Chiavi = field name Pydantic (snake_case). Omettere campi non necessari.
+
+# ── Applicazione ─────────────────────────────────────────────────────────────
+
+rec_name: ${APP_CODE}
+app_code: ${APP_CODE}
+models_folder: ${MODELS_FOLDER}
+
+# ── MongoDB ───────────────────────────────────────────────────────────────────
+
+mongo_user: ${MONGO_USER}
+mongo_pass: ${MONGO_PASS}
+mongo_url: ${MONGO_URL}
+mongo_db: ${MONGO_DB}
+mongo_replica: ${MONGO_REPLICA}
+
+# ── API ───────────────────────────────────────────────────────────────────────
+
+api_prefix: /v2
+require_auth: true
+auth_mode: keycloak           # session | keycloak | none
+backend_interface: db        # db | rest
+
+# ── OAuth / Keycloak ──────────────────────────────────────────────────────────
+
+oauth_url: ${OZON_OAUTH_URL}
+oauth_client_id: ${OZON_CLIENT_ID}
+token_audience: ${OZON_TOKEN_AUDIENCE}
+keycloak_jwks_url_value: ${OZON_KEYCLOAK_JWKS_URL}
+keycloak_issuer_value: ${OZON_KEYCLOAK_ISSUER}
+keycloak_algorithms: RS256
+
+# ── Files ─────────────────────────────────────────────────────────────────────
+
+bootstrap_user_file: base_data/user.json
+upload_folder: /data/uploads
+tmp_upload_folder: /tmp
+
+# ── Settings (parent) ─────────────────────────────────────────────────────────
+# Campi ereditati da Settings. Tutti opzionali, mostrati con il loro default.
+
+
+internal_port: 0
+app_origin_type: ""
+module_label: ""
+description: ""
+admins: []
+module_type: app
+module_group: ""
+version: 1.0.0
+port: 0
+stato: ""
+web_concurrency: 1
+delete_record_after_days: 1
+token_expire_hours: 12
+theme: italia
+logo_img_url: ""
+tz: Europe/Rome
+
+
+report_orientation: Portrait
+report_page_size: A4
+report_footer_company: ""
+report_footer_title1: ""
+report_footer_sub_title: ""
+report_footer_pagination: true
+report_header_space: 30mm
+report_footer_space: 8mm
+report_margin_left: 10mm
+report_margin_right: 10mm

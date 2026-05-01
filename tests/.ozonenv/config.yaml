@@ -1,0 +1,33 @@
+# OzonEnvCoreSettings — configurazione test
+# Valori letti da tests/.env-test tramite interpolazione ${VAR}.
+
+# Applicazione
+rec_name: ${APP_CODE}
+app_code: ${APP_CODE}
+models_folder: ${MODELS_FOLDER}
+
+# MongoDB
+mongo_user: ${MONGO_USER}
+mongo_pass: ${MONGO_PASS}
+mongo_url: ${MONGO_URL}
+mongo_db: ${MONGO_DB}
+mongo_replica: ${MONGO_REPLICA}
+
+# API
+api_prefix: /v2
+require_auth: false
+auth_mode: session
+backend_interface: ${OZON_BACKEND_INTERFACE}
+
+# OAuth / Keycloak
+oauth_url: ${OZON_OAUTH_URL}
+oauth_client_id: ${OZON_CLIENT_ID}
+token_audience: ${OZON_TOKEN_AUDIENCE}
+keycloak_jwks_url_value: ${OZON_KEYCLOAK_JWKS_URL}
+keycloak_issuer_value: ${OZON_KEYCLOAK_ISSUER}
+keycloak_algorithms: ${OZON_KEYCLOAK_ALGORITHMS}
+
+# Files
+bootstrap_user_file: base_data/user.json
+upload_folder: ${OZON_UPOLOAD_FOLDER}
+tmp_upload_folder: /tmp

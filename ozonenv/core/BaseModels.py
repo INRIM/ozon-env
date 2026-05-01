@@ -174,6 +174,32 @@ def _read_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+_ENV_VAR_RE = re.compile(r'\$\{([^}]+)\}')
+
+
+def _expand_yaml_data(data: dict) -> dict:
+    """Expand ${VAR} references in YAML string values using os.environ.
+
+    Whole-value ${VAR} with unset var: key dropped so Pydantic uses field default.
+    Partial interpolation (e.g. "mongodb://${HOST}:27017"): missing var → empty string.
+    Non-string values pass through unchanged.
+    """
+    result = {}
+    for k, v in data.items():
+        if not isinstance(v, str):
+            result[k] = v
+            continue
+        m = re.fullmatch(r'\$\{([^}]+)\}', v)
+        if m:
+            env_val = os.getenv(m.group(1))
+            if env_val is not None:
+                result[k] = env_val
+            # env var unset → skip key, Pydantic uses field default
+        else:
+            result[k] = _ENV_VAR_RE.sub(lambda x: os.getenv(x.group(1), ''), v)
+    return result
+
+
 class DbViewModel(BaseModel):
     name: str
     model: str
@@ -1177,16 +1203,6 @@ class Settings(BasicModel):
     token_expire_hours: Optional[int] = Field(12, title='Token Expire Hours')
     theme: Optional[str] = Field('italia', title='Theme')
     logo_img_url: Optional[str] = Field('', title='Logo Img Url')
-    server_datetime_mask: Optional[str] = Field(
-        '%Y-%m-%dT%H:%M:%S', title='Server Datetime Mask'
-    )
-    server_date_mask: Optional[str] = Field(
-        '%Y-%m-%dT%H:%M:%S', title='Server Date Mask'
-    )
-    ui_datetime_mask: Optional[str] = Field(
-        '%d/%m/%Y %H:%M:%S', title='Ui Datetime Mask'
-    )
-    ui_date_mask: Optional[str] = Field('%d/%m/%Y', title='Ui Date Mask')
     tz: Optional[str] = Field('Europe/Rome', title='Tz')
     report_orientation: Optional[str] = Field(
         'Portrait', title='Report Orientation'
@@ -1954,8 +1970,7 @@ class DataReturn(Generic[D]):
     msg: str = ""
 
 
-@dataclass(frozen=True)
-class OzonEnvCoreSettings:
+class OzonEnvCoreSettings(Settings):
     app_code: str | None = None
     mongo_user: str | None = None
     mongo_pass: str | None = None
@@ -1979,7 +1994,14 @@ class OzonEnvCoreSettings:
 
     @classmethod
     def from_env(cls) -> "OzonEnvCoreSettings":
+        yaml_path = Path(".ozonenv") / "config.yaml"
+        if yaml_path.exists():
+            import yaml
+
+            data = yaml.safe_load(yaml_path.read_text()) or {}
+            return cls(**_expand_yaml_data(data))
         return cls(
+            rec_name=os.getenv("APP_CODE"),
             app_code=os.getenv("APP_CODE"),
             mongo_user=os.getenv("MONGO_USER"),
             mongo_pass=os.getenv("MONGO_PASS"),
@@ -2001,8 +2023,8 @@ class OzonEnvCoreSettings:
                 "base_data/user.json",
             ),
             upload_folder=(
-                os.getenv("OZON_UPOLOAD_FOLDER")
-                or os.getenv("OZON_UPOLOAD_FOLDER")
+                os.getenv("OZON_UPLOAD_FOLDER")
+                or os.getenv("OZON_UPOLOAD_FOLDER")  # compat typo
                 or "/data/uploads"
             ),
             tmp_upload_folder=os.getenv("OZON_ENV_TMP_UPLOAD_FOLDER", "/tmp"),

@@ -40,7 +40,8 @@ dependencies = [
     "pendulum>=3.0.0",
     "iso8601",
     "PyJWT[crypto]>=2.9.0",
-    "setuptools>=82.0.0; python_version >= '3.12'"
+    "setuptools>=82.0.0; python_version >= '3.12'",
+    "pyyaml>=6.0"
 ]
 
 [project.urls]
