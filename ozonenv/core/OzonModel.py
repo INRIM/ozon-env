@@ -41,8 +41,47 @@ from ozonenv.core.utils import (
 )
 from pydantic._internal._model_construction import ModelMetaclass
 from pymongo.errors import DuplicateKeyError, OperationFailure
+import base64
+import hashlib
+import os
+from cryptography.fernet import Fernet
 
 logger = logging.getLogger(__name__)
+
+
+def get_fernet_key(mongo_pass: str) -> bytes:
+    if not mongo_pass:
+        mongo_pass = "default_fallback_pass"
+    key_bytes = hashlib.sha256(mongo_pass.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(key_bytes)
+
+
+def encrypt_value(value: str, mongo_pass: str) -> str:
+    if not value or not isinstance(value, str):
+        return value
+    key = get_fernet_key(mongo_pass)
+    f = Fernet(key)
+    return f.encrypt(value.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_value(value: str, mongo_pass: str) -> str:
+    if not value or not isinstance(value, str):
+        return value
+    key = get_fernet_key(mongo_pass)
+    f = Fernet(key)
+    try:
+        return f.decrypt(value.encode("utf-8")).decode("utf-8")
+    except Exception:
+        return value
+
+
+def get_mongo_pass(orm) -> str:
+    mongo_pass = None
+    if orm and hasattr(orm, "config_system") and orm.config_system:
+        mongo_pass = orm.config_system.get("mongo_pass")
+    if not mongo_pass:
+        mongo_pass = os.getenv("MONGO_PASS")
+    return mongo_pass
 
 
 class OzonMBase:
@@ -394,6 +433,14 @@ class OzonMBase:
         apply_file_dump=True,
     ) -> tuple[CoreModel, ModelMaker]:
         mm = False
+        if isinstance(data, dict):
+            secret_fields = []
+            if hasattr(model, "secret_fields"):
+                secret_fields = model.secret_fields()
+            mongo_pass = get_mongo_pass(self.orm)
+            for field in secret_fields:
+                if field in data and data[field]:
+                    data[field] = decrypt_value(data[field], mongo_pass)
         if not virtual and not as_virtual:
             data = await self._prepare_loaded_record(
                 model=model,
@@ -981,6 +1028,14 @@ class OzonModelBase(OzonMBase):
                     copy.deepcopy(data), data_value=data.get("data_value", {})
                 )
 
+            secret_fields = []
+            if hasattr(self.model, "secret_fields"):
+                secret_fields = self.model.secret_fields()
+            mongo_pass = get_mongo_pass(self.orm)
+            for field in secret_fields:
+                if field in to_save and to_save[field]:
+                    to_save[field] = encrypt_value(to_save[field], mongo_pass)
+
             if "_id" not in to_save:
                 to_save['_id'] = bson.ObjectId(to_save['id'])
             result = None
@@ -1127,6 +1182,15 @@ class OzonModelBase(OzonMBase):
                 to_save = self._make_from_dict(copy.deepcopy(_save))
             if "rec_name" in to_save:
                 to_save.pop("rec_name")
+
+            secret_fields = []
+            if hasattr(self.model, "secret_fields"):
+                secret_fields = self.model.secret_fields()
+            mongo_pass = get_mongo_pass(self.orm)
+            for field in secret_fields:
+                if field in to_save and to_save[field]:
+                    to_save[field] = encrypt_value(to_save[field], mongo_pass)
+
             await coll.update_one(record.rec_name_domain(), {"$set": to_save})
             if not self.virtual:
                 await self._finalize_saved_files(attachments_to_save)

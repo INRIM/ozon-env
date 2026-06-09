@@ -814,6 +814,10 @@ class CoreModel(MainModel):
 
 class BasicModel(CoreModel):
     @classmethod
+    def secret_fields(cls) -> list:
+        return []
+
+    @classmethod
     def get_unique_fields(cls) -> []:
         return ["rec_name"]
 

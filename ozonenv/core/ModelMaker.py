@@ -738,6 +738,7 @@ class BaseModelMaker:
         self.model_name = model_name
         self.unique_fields = ["rec_name"]
         self.required_fields = ["rec_name"]
+        self.secret_fields = []
         self.no_create_model_field_key = [
             "tabs",
             "columns",
@@ -1136,6 +1137,8 @@ class FormioModelMaker(BaseModelMaker):
             self.datetime_fields[field.key] = field.cfg.copy()
         elif comp.get("type") == "file":
             self.file_fields[field.key] = comp
+        elif comp.get("type") == "password":
+            self.secret_fields.append(field.key)
         field.parent = self.parent
         if field.required:
             self.required_fields.append(field.key)

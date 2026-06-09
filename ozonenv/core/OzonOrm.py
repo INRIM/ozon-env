@@ -1407,6 +1407,10 @@ class OzonOrm:
         return {mod.mm.fields} 
         
     @classmethod
+    def secret_fields(cls) -> list:
+        return {mod.mm.secret_fields}
+        
+    @classmethod
     def select_fields(cls):
         return {mod.mm.select_fields}
 
