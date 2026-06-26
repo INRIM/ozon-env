@@ -1285,8 +1285,8 @@ class OzonModelBase(OzonMBase):
             self.error_status(msg, domain)
             return 0
         coll = self.db.engine.get_collection(self.data_model)
-        num = await coll.delete_many(domain)
-        return num
+        res = await coll.delete_many(domain)
+        return res.deleted_count
 
     async def load(
         self, domain: dict, in_execution=False
