@@ -425,4 +425,64 @@ async def test_test_form_1_update_record():
         == "31/12/2000 00:00:00"
     )
 
+
+@pytestmark
+async def test_test_form_1_upsert_after_copy_rename():
+    env = OzonEnv()
+    await auth_env(env)
+    test_form_1_model = await env.add_model('test_form_1')
+
+    duplicated = await test_form_1_model.copy({'rec_name': 'first_form'})
+    assert duplicated.is_error() is False
+    unique_suffix = str(time_.time()).replace('.', '')
+    # rendo unici tutti i campi unique_fields per non collidere con i
+    # duplicati già creati da altri test (es. test_test_form_1_copy_record)
+    for unique_field in test_form_1_model.model.get_unique_fields():
+        if unique_field == 'rec_name':
+            continue
+        duplicated.set(
+            unique_field, f"{duplicated.get(unique_field)}_{unique_suffix}"
+        )
+    duplicated.set('rec_name', f"first_form_copy_{unique_suffix}")
+
+    count_before = await test_form_1_model.count()
+    saved = await test_form_1_model.upsert(duplicated)
+    assert saved is not None
+    assert saved.is_error() is False
+    assert saved.get('rec_name') == duplicated.get('rec_name')
+    saved_id = saved.get('id')
+    count_after_insert = await test_form_1_model.count()
+    assert count_after_insert == count_before + 1
+
+    # prendo il record duplicato, cambio rec_name e rifaccio upsert:
+    # deve fare update trovando il record via _id (non insert)
+    old_rec_name = saved.get('rec_name')
+    new_rec_name = f"first_form_renamed_{unique_suffix}"
+    saved.set('rec_name', new_rec_name)
+    renamed = await test_form_1_model.upsert(saved)
+    assert renamed is not None
+    assert renamed.is_error() is False
+    assert renamed.get('rec_name') == new_rec_name
+    assert renamed.get('id') == saved_id
+
+    # nessun nuovo record creato: upsert ha fatto update, non insert
+    count_after_rename = await test_form_1_model.count()
+    assert count_after_rename == count_after_insert
+
+    # il vecchio rec_name non è più caricabile
+    old_name_lookup = await test_form_1_model.by_name(old_rec_name)
+    assert old_name_lookup is None
+
+    # il nuovo rec_name è caricabile e punta allo stesso record (_id)
+    loaded = await test_form_1_model.load({'rec_name': new_rec_name})
+    assert loaded is not None
+    assert loaded.get('id') == saved_id
+
+    # pulizia: non lasciare record residui per gli altri test
+    await test_form_1_model.remove(renamed)
+
+    await env.close_env()
+
+    await env.close_env()
+
     await env.close_env()

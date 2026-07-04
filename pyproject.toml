@@ -84,6 +84,7 @@ extend-ignore = "E203,W293,W291,E211"
 [tool.black]
 line-length = 79
 skip-string-normalization = true
+target-version = ["py311", "py312", "py313", "py314"]
 exclude = "(tests/data|\\.eggs|\\.git|\\.hg|\\.mypy_cache|\\.nox|\\.tox|\\.venv|_build|buck-out|build|dist|.*/models\\.py.*|.*/models/.*)"
 
 [tool.isort]

@@ -803,6 +803,13 @@ class OzonModelBase(OzonMBase):
     async def by_name(self, name: str) -> CoreModel:
         return await self.load({'rec_name': name})
 
+    async def by_id(self, id: Any) -> Union[None, CoreModel]:
+        try:
+            oid = id if isinstance(id, ObjectId) else bson.ObjectId(str(id))
+        except (bson.errors.InvalidId, TypeError):
+            return None
+        return await self.load({"_id": oid})
+
     async def collect_dump(
         self,
         models: list,
@@ -965,6 +972,13 @@ class OzonModelBase(OzonMBase):
             return None
 
         exist = await self.by_name(data["rec_name"])
+        match_domain = None
+        if not exist and not self.virtual:
+            rec_id = data.get("id") or data.get("_id")
+            if rec_id:
+                exist = await self.by_id(rec_id)
+                if exist:
+                    match_domain = exist.id_domain()
         if self.virtual:
             if data_value:
                 if "data_value" not in data:
@@ -975,7 +989,7 @@ class OzonModelBase(OzonMBase):
         await self.load_data(data)
         # self.modelr.set_active()
         if exist:
-            return await self.update(self.modelr)
+            return await self.update(self.modelr, match_domain=match_domain)
         else:
             return await self.insert(self.modelr)
 
@@ -1134,7 +1148,14 @@ class OzonModelBase(OzonMBase):
         record: CoreModel,
         remove_mata=True,
         force_update_whole_record=False,
+        match_domain: dict = None,
     ) -> Union[None, CoreModel]:
+        """
+        :param match_domain: domain used to locate the record to update
+                              instead of rec_name_domain(). Used when
+                              record.rec_name has changed (rename) and the
+                              existing document must be found by id.
+        """
         self.init_status()
         attachments_to_save: list[dict] = []
         if not self.chk_write_permission():
@@ -1148,9 +1169,8 @@ class OzonModelBase(OzonMBase):
             return None
         try:
             coll = self.db.engine.get_collection(self.data_model)
-            original = await self._load_record_for_diff(
-                record.rec_name_domain()
-            )
+            find_domain = match_domain or record.rec_name_domain()
+            original = await self._load_record_for_diff(find_domain)
             if not original:
                 return None
             if not self.virtual:
@@ -1180,7 +1200,9 @@ class OzonModelBase(OzonMBase):
             else:
                 _save = record.get_dict(compute_datetime=False)
                 to_save = self._make_from_dict(copy.deepcopy(_save))
-            if "rec_name" in to_save:
+            if match_domain and record.rec_name != original.rec_name:
+                to_save["rec_name"] = record.rec_name
+            elif "rec_name" in to_save:
                 to_save.pop("rec_name")
 
             secret_fields = []
@@ -1191,10 +1213,10 @@ class OzonModelBase(OzonMBase):
                 if field in to_save and to_save[field]:
                     to_save[field] = encrypt_value(to_save[field], mongo_pass)
 
-            await coll.update_one(record.rec_name_domain(), {"$set": to_save})
+            await coll.update_one(find_domain, {"$set": to_save})
             if not self.virtual:
                 await self._finalize_saved_files(attachments_to_save)
-            return await self.load(record.rec_name_domain(), in_execution=True)
+            return await self.load(find_domain, in_execution=True)
         except AttachmentError as e:
             if not self.virtual:
                 await self._discard_saved_files(attachments_to_save)

@@ -2241,12 +2241,14 @@ class OzonModelRestBase(OzonModelBase):
         record: CoreModel,
         remove_mata=True,
         force_update_whole_record=False,
+        match_domain: dict = None,
     ) -> Union[None, CoreModel]:
         self.init_status()
         if not self.chk_write_permission():
             msg = _("User is Readonly")
             self.error_status(msg, data=record.get_dict_json())
             return None
+        find_domain = match_domain or record.rec_name_domain()
         if self._is_local_only_model():
             records = self._local_store()
             record_data = record.get_dict_json()
@@ -2254,10 +2256,10 @@ class OzonModelRestBase(OzonModelBase):
             if self.user_session:
                 record_data["update_uid"] = self._user_uid(self.user_session)
             for idx, item in enumerate(records):
-                if item.get("rec_name") == record.rec_name:
+                if _match_local_domain(item, find_domain):
                     records[idx] = record_data
-                    return await self.load(record.rec_name_domain())
-            self.error_status(_("Not found"), record.rec_name_domain())
+                    return await self.load(find_domain)
+            self.error_status(_("Not found"), find_domain)
             return None
         try:
             record_payload = await self._prepare_transport_record(
@@ -2274,11 +2276,12 @@ class OzonModelRestBase(OzonModelBase):
                 "record": make_json_compatible(record_payload),
                 "remove_mata": remove_mata,
                 "force_update_whole_record": force_update_whole_record,
+                "match_domain": make_json_compatible(find_domain),
             },
         )
         data = self._extract_response_data(result, default={})
         if not data:
-            self.error_status(_("Not found"), record.rec_name_domain())
+            self.error_status(_("Not found"), find_domain)
             return None
         await self.load_data(data)
         return self.modelr
@@ -2471,6 +2474,7 @@ class OzonModel(OzonModelBase):
         record: CoreModel,
         remove_mata=True,
         force_update_whole_record=False,
+        match_domain: dict = None,
     ) -> Union[None, CoreModel]:
         self.init_status()
         if not self.chk_write_permission():
@@ -2478,12 +2482,14 @@ class OzonModel(OzonModelBase):
             self.error_status(msg, data=record.get_dict_json())
             return None
         if self._transaction:
-            original = await self.load_raw(record.rec_name_domain())
+            original = await self.load_raw(
+                match_domain or record.rec_name_domain()
+            )
             self.env.local_transaction_add(
                 self.data_model, "update", record.rec_name, original
             )
         return await super().update(
-            record, remove_mata, force_update_whole_record
+            record, remove_mata, force_update_whole_record, match_domain
         )
 
     async def insert(
