@@ -1013,15 +1013,21 @@ class OzonOrm:
         uid: str,
         token_data: dict[str, Any],
     ):
-        if not uid or not token_data or not self.db:
+        """Update login metadata without persisting authentication tokens.
+
+        ``token_data`` remains in the signature for compatibility with
+        subclasses overriding this method. The unset also removes credentials
+        stored by releases predating 4.0.2.
+        """
+        if not uid or not self.db:
             return
         await self.db.engine.get_collection("user").update_one(
             {"uid": uid},
             {
                 "$set": {
-                    "token": copy.deepcopy(token_data),
                     "last_login": BasicModel.utc_now(),
-                }
+                },
+                "$unset": {"token": ""},
             },
         )
 
@@ -1127,6 +1133,7 @@ class OzonOrm:
         ) + 1
         data = user.get_dict_copy()
         data.pop("id", None)
+        data.pop("token", None)
         try:
             await self.db.engine.get_collection("user").insert_one(data)
         except Exception:
@@ -1152,15 +1159,6 @@ class OzonOrm:
         try:
             verified = await auth_manager.verify(access_token)
         except TokenExpiredError:
-            if not refresh_token:
-                claims = auth_manager.decode_unverified(access_token)
-                user_record = await self.load_user_by_uid(
-                    auth_manager.extract_user_id(claims)
-                )
-                if user_record and isinstance(user_record.token, dict):
-                    refresh_token = user_record.token.get("refresh_token", "")
-                    if refresh_token:
-                        token_data["refresh_token"] = refresh_token
             if not refresh_token:
                 raise
             refreshed = await auth_manager.refresh(refresh_token)

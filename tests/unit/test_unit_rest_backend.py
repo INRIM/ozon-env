@@ -30,7 +30,9 @@ async def _authenticated_env(tmp_path, name: str = "db-auth"):
     return env, cfg
 
 
-async def test_db_user_auth_uses_real_keycloak_and_persists_token(tmp_path):
+async def test_db_user_auth_uses_real_keycloak_without_persisting_token(
+    tmp_path,
+):
     env, _cfg = await _authenticated_env(tmp_path)
     try:
         assert "session" not in env.models
@@ -41,7 +43,7 @@ async def test_db_user_auth_uses_real_keycloak_and_persists_token(tmp_path):
         stored_user = await env.db.engine.get_collection("user").find_one(
             {"uid": "adminuser"}
         )
-        assert stored_user["token"]["access_token"] == env.session_token
+        assert "token" not in stored_user
         assert stored_user["last_login"] is not None
     finally:
         await env.close_env()
@@ -76,7 +78,7 @@ async def test_db_user_auth_provisions_missing_user_from_valid_jwt(tmp_path):
         assert stored_user["user_role"] == ["user"]
         assert stored_user["is_admin"] is False
         assert stored_user["active"] is True
-        assert stored_user["token"]["access_token"] == env.session_token
+        assert "token" not in stored_user
         assert stored_user["last_login"] is not None
     finally:
         await env.close_env()
