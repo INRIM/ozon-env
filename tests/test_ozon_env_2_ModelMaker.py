@@ -295,3 +295,104 @@ async def test_make_form_cond_schema():
         'secret': 'Secret message',
         'rec_name': '',
     }
+
+
+def _field_rule_schema():
+    """Schema minimale (stessi campi usati da Component/ModelMaker, vedi
+    test_password_fields_encryption_decryption per lo stesso stile
+    minimale) con 4 campi che coprono i casi da verificare per l'ACL a
+    livello di campo (f_rule/f_rule_cond, layer 3)."""
+    return {
+        "rec_name": "test_field_rule_model",
+        "components": [
+            {
+                "key": "codicefiscale",
+                "type": "textfield",
+                "label": "Codice Fiscale",
+                "input": True,
+                "properties": {
+                    "f_rule": {"read": ["gdpr", "dpo"], "write": ["gdpr"]},
+                    "f_rule_cond": {
+                        "owner_uid": {"$eq": {"var": "user.uid"}}
+                    },
+                },
+            },
+            {
+                "key": "badRuleField",
+                "type": "textfield",
+                "label": "Bad Rule",
+                "input": True,
+                "properties": {
+                    # "read" deve essere una lista di stringhe, non una
+                    # stringa nuda -> shape non valida, scartata.
+                    "f_rule": {"read": "gdpr"},
+                    # f_rule_cond deve essere un dict -> shape non valida,
+                    # scartata.
+                    "f_rule_cond": ["owner_uid", "u1"],
+                },
+            },
+            {
+                "key": "plainField",
+                "type": "textfield",
+                "label": "Plain",
+                "input": True,
+            },
+        ],
+    }
+
+
+def test_field_rule_and_condition_extracted():
+    """Campo con f_rule/f_rule_cond validi: entrambi finiscono, verbatim,
+    negli accumulatori ModelMaker.field_rules/field_rule_conditions —
+    questi alimentano get_field_rules()/get_field_rules_conditions() baked
+    a codegen-time da OzonOrm.make_local_model()."""
+    schema = _field_rule_schema()
+    mm = ModelMaker("test_field_rule_model", tz="Europe/Rome")
+    mm.from_formio(schema)
+
+    assert mm.field_rules["codicefiscale"] == {
+        "read": ["gdpr", "dpo"],
+        "write": ["gdpr"],
+    }
+    assert mm.field_rule_conditions["codicefiscale"] == {
+        "owner_uid": {"$eq": {"var": "user.uid"}}
+    }
+
+
+def test_field_rule_invalid_shape_discarded():
+    """Shape non valida (f_rule.read non e' una lista di stringhe,
+    f_rule_cond non e' un dict) -> scartata silenziosamente (solo
+    logger.warning), il campo NON compare in nessuno dei due accumulatori.
+    Fail-closed di proposito: config malformata non deve produrre un
+    grant/reveal implicito."""
+    schema = _field_rule_schema()
+    mm = ModelMaker("test_field_rule_model", tz="Europe/Rome")
+    mm.from_formio(schema)
+
+    assert "badRuleField" not in mm.field_rules
+    assert "badRuleField" not in mm.field_rule_conditions
+
+
+def test_field_without_rule_properties_not_restricted():
+    """Campo senza f_rule/f_rule_cond nelle properties (baseline, la
+    stragrande maggioranza dei campi) non finisce in nessuno dei due
+    accumulatori -> get_restricted_fields() (unione delle chiavi) non lo
+    includera'."""
+    schema = _field_rule_schema()
+    mm = ModelMaker("test_field_rule_model", tz="Europe/Rome")
+    mm.from_formio(schema)
+
+    assert "plainField" not in mm.field_rules
+    assert "plainField" not in mm.field_rule_conditions
+    restricted = sorted(set(mm.field_rules) | set(mm.field_rule_conditions))
+    assert restricted == ["codicefiscale"]
+
+
+def test_basic_model_field_rule_fallback_defaults():
+    """Un model NON generato da codegen (o generato prima di questa
+    feature) deve degradare a liste/dict vuoti invece di AttributeError —
+    vedi il default aggiunto in BaseModels.BasicModel, stesso pattern di
+    secret_fields()/get_unique_fields()."""
+    assert BasicModel.get_restricted_fields() == []
+    assert BasicModel.get_field_rules() == {}
+    assert BasicModel.get_field_rules_conditions() == {}

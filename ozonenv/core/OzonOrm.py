@@ -1450,7 +1450,19 @@ class OzonOrm:
     @classmethod
     def fields_properties(cls):
         return {mod.mm.fields_properties}
-        
+
+    @classmethod
+    def get_restricted_fields(cls) -> list:
+        return {sorted(set(mod.mm.field_rules) | set(mod.mm.field_rule_conditions))}
+
+    @classmethod
+    def get_field_rules(cls) -> dict:
+        return {mod.mm.field_rules}
+
+    @classmethod
+    def get_field_rules_conditions(cls) -> dict:
+        return {mod.mm.field_rule_conditions}
+
     @classmethod
     def default_hidden_fields(cls):
         return {mod.mm.default_hidden_fields}

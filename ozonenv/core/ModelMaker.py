@@ -756,6 +756,8 @@ class BaseModelMaker:
         self.no_clone_field_keys = ["rec_name"]
         self.computed_fields = {}
         self.fields_properties = {}
+        self.field_rules = {}
+        self.field_rule_conditions = {}
         self.fields_parser = fields_parser
         self.create_task_action = []
         self.create_model_to_nesteded = ["datagrid", "form", "table"]
@@ -1105,6 +1107,7 @@ class FormioModelMaker(BaseModelMaker):
             self.create_task_action.append(field.key)
         if field.properties:
             self.fields_properties[field.key] = field.properties.copy()
+            self._extract_field_rule(field)
         if field.hidden:
             self.default_hidden_fields.append(field.key)
         if field.readonly:
@@ -1119,6 +1122,66 @@ class FormioModelMaker(BaseModelMaker):
             field.eval_components()
         except Exception as e:
             logger.error(f"Error eval_component {field.key} {e}")
+
+    def _extract_field_rule(self, field: Component):
+        """Legge `properties.f_rule`/`properties.f_rule_cond` (ACL a livello
+        di CAMPO, gia' baked a generation-time — vedi get_field_rules()/
+        get_field_rules_conditions() nell'append block di
+        OzonOrm.make_local_model()) e le accumula su self.field_rules/
+        self.field_rule_conditions, in modo che get_restricted_fields()
+        possa restituire l'unione delle chiavi senza ricalcolo a runtime.
+
+        `f_rule`: {"read": [group,...], "write": [group,...]} — gruppi che
+        sbloccano lettura/scrittura del campo (baseline oscurato salvo
+        match gruppo). `f_rule_cond`: query mongo-shaped — condizione
+        record-dipendente che sblocca SOLO la lettura (mai la scrittura,
+        per evitare bypass silenzioso delle regole di scrittura altrove).
+
+        Shape non valida = loggata e scartata (fail-closed: un campo con
+        `f_rule`/`f_rule_cond` malformati resta escluso dalle regole
+        anziche' produrre un grant/reveal accidentale).
+
+        LIMITE NOTO: un campo dentro un componente nested (datagrid/form/
+        table) viene processato da un'istanza `FormioModelMaker` FIGLIA
+        (vedi `add_nested`), che valorizza il proprio `field_rules`/
+        `field_rule_conditions` — mai riportati sul parent (a differenza
+        di `nested_datetime_fields`/`nested_transform_data_value`, che
+        SONO riportati). Un `f_rule` su un campo annidato viene quindi
+        estratto ma mai baked. Stesso limite di scope del meccanismo
+        `obfuscate_fields` esistente (solo campi top-level, vedi
+        OzonModel.build_projection_from_obfuscate_fields) — non e' una
+        regressione, ma va rispettato dal consumer (ozon-env-app): non
+        assumere copertura su campi annidati finche' non viene aggiunto
+        esplicitamente un riporto tipo quello di nested_datetime_fields."""
+        f_rule = field.properties.get("f_rule")
+        if f_rule is not None:
+            if (
+                isinstance(f_rule, dict)
+                and set(f_rule.keys()) <= {"read", "write"}
+                and all(
+                    isinstance(v, list) and all(isinstance(g, str) for g in v)
+                    for v in f_rule.values()
+                )
+            ):
+                self.field_rules[field.key] = f_rule
+            else:
+                logger.warning(
+                    "field %s: f_rule shape non valida (atteso "
+                    "{'read': [str,...], 'write': [str,...]}), scartata: %s",
+                    field.key,
+                    f_rule,
+                )
+        f_rule_cond = field.properties.get("f_rule_cond")
+        if f_rule_cond is not None:
+            if isinstance(f_rule_cond, dict):
+                self.field_rule_conditions[field.key] = f_rule_cond
+            else:
+                logger.warning(
+                    "field %s: f_rule_cond deve essere un dict (query "
+                    "mongo-shaped), scartata: %s",
+                    field.key,
+                    f_rule_cond,
+                )
 
     def complete_component_field(self, comp, compo_todo):
         builder = self

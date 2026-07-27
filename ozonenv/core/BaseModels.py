@@ -841,6 +841,18 @@ class BasicModel(CoreModel):
     def file_fields(cls) -> dict:
         return {}
 
+    @classmethod
+    def get_restricted_fields(cls) -> list:
+        return []
+
+    @classmethod
+    def get_field_rules(cls) -> dict:
+        return {}
+
+    @classmethod
+    def get_field_rules_conditions(cls) -> dict:
+        return {}
+
 
 class User(BasicModel):
     uid: str
