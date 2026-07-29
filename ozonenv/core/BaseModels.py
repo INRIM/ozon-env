@@ -1300,6 +1300,25 @@ class User(BasicModel):
             'last_login': 'Last Login',
         }
 
+    @classmethod
+    def get_field_rules(cls) -> dict:
+        rule = {"read": ["gdpr", "dpo"], "write": ["gdpr", "admin"]}
+        return {
+            "codicefiscale": rule,
+            "user": rule,
+            "user_data": rule,
+        }
+
+    @classmethod
+    def get_field_rules_conditions(cls) -> dict:
+        return {}
+
+    @classmethod
+    def get_restricted_fields(cls) -> list:
+        return sorted(
+            set(cls.get_field_rules()) | set(cls.get_field_rules_conditions())
+        )
+
 
 class JobContext(BasicModel):
     job_token: str
