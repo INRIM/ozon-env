@@ -109,22 +109,6 @@ class KeycloakAuthManager:
     def extract_client_id(claims: dict[str, Any]) -> str:
         return claims.get("azp") or claims.get("client_id") or ""
 
-    @staticmethod
-    def decode_unverified(token: str) -> dict[str, Any]:
-        try:
-            return jwt.decode(
-                token,
-                options={
-                    "verify_signature": False,
-                    "verify_exp": False,
-                    "verify_aud": False,
-                    "verify_iss": False,
-                },
-                algorithms=["RS256", "HS256"],
-            )
-        except Exception:
-            return {}
-
     async def verify(
         self,
         token: str,

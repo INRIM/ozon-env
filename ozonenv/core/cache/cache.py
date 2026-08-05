@@ -3,7 +3,7 @@ from redis.asyncio.client import Redis
 from typing import Any
 import logging
 from typing import Tuple
-from .coder import PickleCoder
+from .coder import JsonCoder
 
 # from aioredis import Redis
 
@@ -11,7 +11,7 @@ from .coder import PickleCoder
 class RedisBackend:
     def __init__(self, redis: Redis):
         self.redis = redis
-        self.coder = PickleCoder
+        self.coder = JsonCoder
 
     async def get_with_ttl(self, app_code: str, key: str) -> Tuple[int, str]:
         async with self.redis.pipeline(transaction=True) as pipe:

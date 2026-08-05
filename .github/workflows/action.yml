@@ -5,10 +5,34 @@ on:
   pull_request:
 
 jobs:
+  trivy:
+    name: Trivy Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+      - name: Run Trivy
+        uses: aquasec/trivy-action@0.24.0
+        with:
+          scan-type: 'fs'
+          exit-code: '1'
+          severity: 'HIGH,CRITICAL'
+
+  semgrep:
+    name: Semgrep Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+      - name: Run Semgrep
+        run: |
+          python3 -m pip install semgrep
+          semgrep scan --config auto --error
+
   ci:
     name: Test on Python ${{ matrix.python-version }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-
+    needs: [trivy, semgrep]
     permissions:
       contents: read
       pull-requests: write
@@ -25,10 +49,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@4665351e60be76a4296400986a7ef6535f186ab3
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip

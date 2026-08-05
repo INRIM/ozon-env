@@ -571,8 +571,8 @@ class OzonEnvBase:
 
     async def get_auth_token(
         self,
-        username: str = "testuser",
-        password: str = "testpass",
+        username: str,
+        password: str,
         client_id: str | None = None,
         client_secret: str | None = None,
         oauth_url: str | None = None,
@@ -594,9 +594,7 @@ class OzonEnvBase:
 
         return payload["access_token"]
 
-    async def make_auth_params(
-        self, username="adminuser", password="adminpass", **extra
-    ) -> dict:
+    async def make_auth_params(self, username, password, **extra) -> dict:
         params = {
             "current_token": await self.get_auth_token(
                 username=username,
