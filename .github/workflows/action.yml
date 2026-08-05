@@ -4,44 +4,39 @@ on:
   push:
   pull_request:
 
-permissions:
-  security-events: write
-  contents: read
-
 jobs:
-  trivy:
-    name: Trivy Scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Run Trivy (SARIF)
-        uses: aquasecurity/trivy-action@0.36.0
-        with:
-          scan-type: 'fs'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'HIGH,CRITICAL'
-          exit-code: '0'
-      - name: Upload Trivy SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-results.sarif
-
   semgrep:
-    name: Semgrep Scan
+    name: Semgrep SAST
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
       - name: Run Semgrep
-        uses: returntocorp/semgrep-action@v1
-        continue-on-error: true
-        with:
-          config: >-
-            auto
-          generateSarif: 'true'
+        run: |
+          # semgrep ci esce non-zero se trovo finding blocking (config auto
+          # = ruleset pubblico, niente SEMGREP_APP_TOKEN richiesto).
+          docker run --rm -v "$PWD:/src" -w /src returntocorp/semgrep:1.170.1 \
+            semgrep ci --config auto
+
+  trivy:
+    name: Trivy vulnerability scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Run Trivy (fs)
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo aquasec/trivy:0.73.0 \
+            fs \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            .
 
   ci:
     name: Test on Python ${{ matrix.python-version }} - ${{ matrix.os }}
