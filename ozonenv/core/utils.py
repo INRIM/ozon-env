@@ -129,3 +129,36 @@ def unwrap_optional(annotation):
         if args:
             return args[0]
     return annotation
+
+
+_EMPTY_BY_TYPE = {
+    str: "**OMISSIS**",
+    int: 0,
+    float: 0.0,
+    bool: False,
+    dict: {},
+    list: [],
+    tuple: [],
+    set: [],
+}
+
+
+def empty_value_for_annotation(annotation):
+    """Valore vuoto BSON-encodable derivato dall'annotazione del campo.
+
+    Serve ai campi REQUIRED (nessun default, nessuna default_factory) che
+    vanno oscurati: il record oscurato ripassa da `_load_data`, quindi il
+    rimpiazzo deve rivalidare nel model — su un required non Optional un
+    None sarebbe un ValidationError. Su un tipo non mappato (datetime,
+    Decimal128, PyObjectId...) resta None: quei campi in pratica sono
+    Optional o hanno un default.
+
+    `set`/`tuple` rendono una lista: BSON non ha ne' set ne' tuple, e
+    pydantic ricoerce la lista nel tipo dichiarato al reload.
+    """
+    inner = unwrap_optional(annotation)
+    origin = get_origin(inner) or inner
+    empty = _EMPTY_BY_TYPE.get(origin)
+    if isinstance(empty, (dict, list)):
+        return type(empty)(empty)
+    return empty

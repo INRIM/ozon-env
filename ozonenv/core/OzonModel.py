@@ -13,6 +13,7 @@ from typing_extensions import deprecated
 import bson
 import pydantic
 import pymongo
+from pydantic_core import PydanticUndefined
 from bson import ObjectId, Decimal128
 from motor.motor_asyncio import AsyncIOMotorCommandCursor, AsyncIOMotorCursor
 from ozonenv.core.BaseModels import (
@@ -36,6 +37,7 @@ from ozonenv.core.ModelService import (
 from ozonenv.core.exceptions import OzonPermissionError
 from ozonenv.core.i18n import _
 from ozonenv.core.utils import (
+    empty_value_for_annotation,
     is_json,
     traverse_and_convertd_datetime,
 )
@@ -504,6 +506,45 @@ class OzonMBase:
         )
         modelr.disable_base64_file_dump()
         return modelr
+
+
+# Campi IDENTITA': oscurarli in pipeline non nasconde un dato, ne
+# fabbrica uno falso — `id` ha `default_factory=PyObjectId`, quindi il
+# literal sarebbe un ObjectId NUOVO, diverso da quello del documento. Il
+# record tornerebbe con un'identita' inventata e ogni update/by_id
+# successivo lavorerebbe su un id inesistente. Restano passthrough: se una
+# policy li dichiara da mascherare, l'oscuramento lato chiamante
+# (Python, dopo la query) resta comunque applicato.
+NEVER_OBFUSCATED = frozenset({"id", "_id"})
+
+
+def obfuscated_value_for_field(field):
+    """Valore che rimpiazza un campo oscurato nella pipeline.
+
+    Deve essere insieme (a) codificabile in BSON e (b) rivalidabile
+    nel model: il record oscurato torna da `find` e ripassa da
+    `_load_data`, quindi un None su un `dict[str, Any]` non Optional
+    sarebbe un ValidationError al posto dell'InvalidDocument.
+
+    `field.default` e' PydanticUndefined in DUE casi — campo required
+    e campo dichiarato con `default_factory` (es.
+    `user_data: dict[str, Any] = Field(default_factory=dict)`) —
+    quindi non e' usabile grezzo: finiva dentro `{"$literal": ...}` e
+    pymongo sollevava
+    `InvalidDocument: cannot encode object: PydanticUndefined`.
+    """
+    if field.default is not PydanticUndefined:
+        return (
+            "**OMISSIS**" if isinstance(field.default, str) else field.default
+        )
+    if field.default_factory is not None:
+        # pydantic >= 2.10: la factory puo' avere arita' 1 (riceve i
+        # dati gia' validati), quindi niente `field.default_factory()`
+        # diretto.
+        return field.get_default(call_default_factory=True, validated_data={})
+    # Campo required (nessun default, nessuna factory): non c'e' un
+    # valore dichiarato da cui partire, si deriva un vuoto dal tipo.
+    return empty_value_for_annotation(field.annotation)
 
 
 class OzonModelBase(OzonMBase):
@@ -1393,7 +1434,7 @@ class OzonModelBase(OzonMBase):
 
         for name, field in self.model.model_fields.items():
 
-            if name in obfuscate_fields:
+            if name in obfuscate_fields and name not in NEVER_OBFUSCATED:
 
                 obf_value = (
                     field.json_schema_extra.get("obfuscate_value")
@@ -1404,10 +1445,9 @@ class OzonModelBase(OzonMBase):
                 if obf_value is not None:
                     projection[name] = {"$literal": obf_value}
                 else:
-                    if isinstance(field.default, str):
-                        projection[name] = {"$literal": "**OMISSIS**"}
-                    else:
-                        projection[name] = {"$literal": field.default}
+                    projection[name] = {
+                        "$literal": obfuscated_value_for_field(field)
+                    }
 
             else:
                 projection[name] = f"${name}"
