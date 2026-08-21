@@ -434,6 +434,7 @@ class OzonMBase:
     ) -> tuple[CoreModel, ModelMaker]:
         mm = False
         if isinstance(data, dict):
+            data = copy.deepcopy(data)
             secret_fields = []
             if hasattr(model, "secret_fields"):
                 secret_fields = model.secret_fields()
@@ -453,6 +454,7 @@ class OzonMBase:
             data = await self.make_data_value(
                 copy.deepcopy(data), pdata_value=data.get("data_value", {})
             )
+            data = model.normalize_model_fields(data)
             modelr = model(**data)
         else:
             if data.get("id") is ObjectId:

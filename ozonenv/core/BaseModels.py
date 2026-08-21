@@ -15,14 +15,14 @@ from dataclasses import dataclass
 from datetime import datetime, date, time
 from functools import reduce
 from pathlib import Path
-from typing import Any, Optional, get_origin, get_args
+from types import UnionType
+from typing import Annotated, Any, Optional, Union, get_args, get_origin
 from typing import TypeVar, Generic, List, Dict
 from zoneinfo import ZoneInfo
 
 from bson import Decimal128, Int64
 from dateutil.parser import parse
 from ozonenv.core.db.BsonTypes import PyObjectId, bson, BsonEncoder
-from ozonenv.core.utils import unwrap_optional
 from pydantic import (
     AwareDatetime,
     BaseModel,
@@ -474,128 +474,182 @@ class MainModel(BaseModel):
         return {}
 
     @classmethod
+    def _annotation_variants(cls, annotation) -> tuple:
+        origin = get_origin(annotation)
+        if origin is Annotated:
+            return cls._annotation_variants(get_args(annotation)[0])
+        if origin in (Union, UnionType):
+            variants = []
+            for item in get_args(annotation):
+                variants.extend(cls._annotation_variants(item))
+            return tuple(variants)
+        return (annotation,)
+
+    @classmethod
+    def _nested_model_type(cls, annotation):
+        for variant in cls._annotation_variants(annotation):
+            if isinstance(variant, type) and issubclass(variant, BaseModel):
+                return variant
+        return None
+
+    @classmethod
+    def _nested_collection_model_type(cls, annotation):
+        for variant in cls._annotation_variants(annotation):
+            if get_origin(variant) not in (list, tuple):
+                continue
+            args = get_args(variant)
+            if not args:
+                continue
+            nested_model = cls._nested_model_type(args[0])
+            if nested_model:
+                return nested_model
+        return None
+
+    @classmethod
+    def _normalize_model_data(
+        cls,
+        model: type[MainModel],
+        data: dict,
+        field_normalizer,
+        nested_field: str = None,
+    ) -> dict:
+        """Walk model-shaped data without mutating the caller's payload."""
+        normalized = copy.deepcopy(data)
+        for name, field in model.model_fields.items():
+            if name not in normalized:
+                continue
+
+            raw_value = normalized[name]
+            collection_model = cls._nested_collection_model_type(
+                field.annotation
+            )
+            if collection_model and isinstance(raw_value, (list, tuple)):
+                items = [
+                    (
+                        cls._normalize_model_data(
+                            collection_model,
+                            item,
+                            field_normalizer,
+                            name,
+                        )
+                        if isinstance(item, dict)
+                        else item
+                    )
+                    for item in raw_value
+                ]
+                normalized[name] = (
+                    tuple(items) if isinstance(raw_value, tuple) else items
+                )
+                continue
+
+            nested_model = cls._nested_model_type(field.annotation)
+            if nested_model and isinstance(raw_value, dict):
+                normalized[name] = cls._normalize_model_data(
+                    nested_model,
+                    raw_value,
+                    field_normalizer,
+                    name,
+                )
+                continue
+
+            normalized[name] = field_normalizer(
+                model,
+                name,
+                field,
+                raw_value,
+                nested_field,
+            )
+        return normalized
+
+    @classmethod
+    def normalize_model_fields(cls, data: dict) -> dict:
+        """Normalize scalar inputs according to Pydantic field annotations."""
+
+        def _normalize_string(model, name, field, raw_value, nested_field):
+            del model, name, nested_field
+            if raw_value is None or isinstance(raw_value, str):
+                return raw_value
+            accepts_string = str in cls._annotation_variants(field.annotation)
+            if accepts_string and type(raw_value) in (int, float, bool):
+                return str(raw_value)
+            return raw_value
+
+        return cls._normalize_model_data(cls, data, _normalize_string)
+
+    @classmethod
     def normalize_datetime_fields(cls, tz: str, dati: dict) -> dict:
         """
         Controlla tutti i campi datetime del model (inclusi nested model):
           - se il valore è naive, assume che sia in self.tz
           - lo converte in UTC e aggiorna il dizionario
-        Ritorna il dizionario modificato
+        Ritorna una copia normalizzata del dizionario.
         """
         tz_base = ZoneInfo(tz)
 
-        def _normalize_model_fields(
-            model: type[MainModel], mdata: dict, nested_field: str = None
-        ) -> dict:
-            for name, field in model.model_fields.items():
-
-                if name not in mdata:
-                    continue
-
-                raw_value = mdata[name]
-                actual_type = unwrap_optional(field.annotation)
-
-                # --- Single nested Pydantic model ---
-                if isinstance(raw_value, dict) and hasattr(
-                    actual_type, "model_fields"
-                ):
-                    nested_result = _normalize_model_fields(
-                        actual_type, raw_value, name
+        def _normalize_datetime(model, name, field, raw_value, nested_field):
+            variants = cls._annotation_variants(field.annotation)
+            if datetime in variants or AwareDatetime in variants:
+                if nested_field:
+                    dttype = (
+                        cls.nested_datetime_fields()
+                        .get(nested_field, {})
+                        .get(name, {})
+                        .get("transform", {})
+                        .get("type", "datetime")
                     )
-                    mdata[name] = nested_result
-                    continue
+                else:
+                    dttype = (
+                        model.datetime_fields()
+                        .get(name, {})
+                        .get("transform", {})
+                        .get("type", "datetime")
+                    )
 
-                # --- List/Tuple of nested Pydantic models ---
-                origin = get_origin(actual_type)
-                args = get_args(actual_type)
-                if origin in (list, tuple) and args:
-                    elem_type = unwrap_optional(args[0])
-                    if isinstance(raw_value, list) and hasattr(
-                        elem_type, "model_fields"
-                    ):
-                        # datagrid
-                        for idx, item in enumerate(raw_value):
-                            if isinstance(item, dict):
-                                el_data = _normalize_model_fields(
-                                    elem_type, item, name
-                                )
-                                mdata[name][idx] = el_data
-                        continue
+                if raw_value is None:
+                    return raw_value
 
-                if field.annotation in (
-                    datetime,
-                    AwareDatetime,
-                    Optional[AwareDatetime],
-                ):
-                    if nested_field:
-                        dttype = (
-                            cls.nested_datetime_fields()
-                            .get(nested_field, {})
-                            .get(name, {})
-                            .get("transform", {})
-                            .get("type", "datetime")
-                        )
-                    else:
-                        dttype = (
-                            model.datetime_fields()
-                            .get(name, {})
-                            .get("transform", {})
-                            .get("type", "datetime")
-                        )
+                # parsing
+                if isinstance(raw_value, str):
+                    try:
+                        value = datetime.fromisoformat(raw_value)
+                    except ValueError:
+                        value = BasicModel.default_datetime()
+                elif isinstance(raw_value, datetime):
+                    value = raw_value
+                elif isinstance(raw_value, date):
+                    value = datetime.combine(raw_value, time.min)
+                else:
+                    return raw_value
 
-                    if raw_value is None:
-                        continue
+                # --- CASO DATE ---
+                if dttype == "date":
+                    value = datetime(
+                        value.year,
+                        value.month,
+                        value.day,
+                        tzinfo=ZoneInfo("UTC"),
+                    )
+                    return value
 
-                    # parsing
-                    if isinstance(raw_value, str):
-                        try:
-                            value = datetime.fromisoformat(raw_value)
-                        except ValueError:
-                            value = BasicModel.default_datetime()
-                    elif isinstance(raw_value, datetime):
-                        value = raw_value
-                    elif isinstance(raw_value, date):
-                        value = datetime.combine(raw_value, time.min)
-                    else:
-                        continue
+                # --- CASO DATETIME ---
+                if value.tzinfo is None:
+                    value = value.replace(tzinfo=tz_base)
 
-                    # --- CASO DATE ---
-                    if dttype == "date":
-                        value = datetime(
-                            value.year,
-                            value.month,
-                            value.day,
-                            tzinfo=ZoneInfo("UTC"),
-                        )
-                        mdata[name] = value
-                        continue
+                utc_value = value.astimezone(ZoneInfo("UTC"))
+                return utc_value
+            if int in variants and type(raw_value) in (Int64, str):
+                try:
+                    return int(str(raw_value))
+                except ValueError:
+                    return 0
+            if float in variants and type(raw_value) in (Decimal128, str):
+                try:
+                    return float(str(raw_value))
+                except ValueError:
+                    return 0.0
+            return raw_value
 
-                    # --- CASO DATETIME ---
-                    if value.tzinfo is None:
-                        value = value.replace(tzinfo=tz_base)
-
-                    utc_value = value.astimezone(ZoneInfo("UTC"))
-                    mdata[name] = utc_value
-                elif field.annotation in [int, Optional[int]]:
-                    if type(raw_value) is str:
-                        try:
-                            mdata[name] = int(raw_value)
-                        except ValueError:
-                            mdata[name] = 0
-                elif field.annotation in [float, Optional[float]]:
-                    if type(raw_value) in [Decimal128, str]:
-                        try:
-                            mdata[name] = float(str(raw_value))
-                        except ValueError:
-                            mdata[name] = 0.0
-                elif field.annotation in [int, Optional[int]]:
-                    if type(raw_value) in [Int64, str]:
-                        try:
-                            mdata[name] = int(str(raw_value))
-                        except ValueError:
-                            mdata[name] = 0
-            return mdata
-
-        return _normalize_model_fields(cls, dati)
+        return cls._normalize_model_data(cls, dati, _normalize_datetime)
 
     model_config = {
         "populate_by_name": True,

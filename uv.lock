@@ -300,7 +300,7 @@ wheels = [
 
 [[package]]
 name = "datamodel-code-generator"
-version = "0.72.1"
+version = "0.74.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "argcomplete" },
@@ -312,9 +312,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d1/92/74866dde631cb94f4dbc827127b64e199ec40179103d29f54ca29c9306a2/datamodel_code_generator-0.72.1.tar.gz", hash = "sha256:e1789dbaba2eb4edd49b033144f0355754b751ceabc9ecfc7394b27f38348dfc", size = 1847031, upload-time = "2026-08-04T18:14:43.553Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/57/e8/8a46c8de96ec5c3b891172bf5db4bcf4797e75c31aa03d540d528e61ccd8/datamodel_code_generator-0.74.0.tar.gz", hash = "sha256:db0998d920e774f48442ca2702b901049be60c35ccb547086c574b1d261f1444", size = 2055535, upload-time = "2026-08-17T17:06:40.393Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/dd/e3/20d5bb1243f281be4310fe2adc0e0e9c9aab4e01e385ec4df1ae7eb854e6/datamodel_code_generator-0.72.1-py3-none-any.whl", hash = "sha256:20ff7ddc09133285bb0724bb51df9ec408695f86b9011561398e583eda9339b2", size = 511686, upload-time = "2026-08-04T18:14:41.968Z" },
+    { url = "https://files.pythonhosted.org/packages/d3/81/5b79e507f1fab62ac953d3343708a345d8e74cbe862ca2f61ccc90c2c600/datamodel_code_generator-0.74.0-py3-none-any.whl", hash = "sha256:5e7d0b41d25077ac54f23775904573fc8b608bdabc7fc762885204322f596190", size = 592333, upload-time = "2026-08-17T17:06:38.185Z" },
 ]
 
 [[package]]
@@ -571,14 +571,14 @@ requires-dist = [
     { name = "aiopathlib", specifier = ">=0.6.0" },
     { name = "anyio", specifier = ">=4.10.0" },
     { name = "babel", specifier = ">=2.13.1" },
-    { name = "datamodel-code-generator", specifier = ">=0.72.1,<0.73.0" },
+    { name = "datamodel-code-generator", specifier = ">=0.74.0,<0.75.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "iso8601" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "json-logic-qubit", specifier = ">=0.9.1" },
     { name = "motor", specifier = ">=3.7.1" },
     { name = "pendulum", specifier = ">=3.0.0" },
-    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.9.0" },
     { name = "python-dateutil", specifier = ">=2.9.0" },
     { name = "pytz", specifier = ">=2025.2" },

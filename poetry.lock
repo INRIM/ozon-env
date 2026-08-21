@@ -476,14 +476,14 @@ ssh = ["bcrypt (>=3.1.5)"]
 
 [[package]]
 name = "datamodel-code-generator"
-version = "0.72.1"
+version = "0.74.0"
 description = "Datamodel Code Generator"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "datamodel_code_generator-0.72.1-py3-none-any.whl", hash = "sha256:20ff7ddc09133285bb0724bb51df9ec408695f86b9011561398e583eda9339b2"},
-    {file = "datamodel_code_generator-0.72.1.tar.gz", hash = "sha256:e1789dbaba2eb4edd49b033144f0355754b751ceabc9ecfc7394b27f38348dfc"},
+    {file = "datamodel_code_generator-0.74.0-py3-none-any.whl", hash = "sha256:5e7d0b41d25077ac54f23775904573fc8b608bdabc7fc762885204322f596190"},
+    {file = "datamodel_code_generator-0.74.0.tar.gz", hash = "sha256:db0998d920e774f48442ca2702b901049be60c35ccb547086c574b1d261f1444"},
 ]
 
 [package.dependencies]
@@ -1758,4 +1758,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0"
-content-hash = "49b614ce50f42811df9d0f527afabcc742bc26baa4eedcc7405f20f0c8aeffdd"
+content-hash = "797c067ede74cc87aab95bbe8e7173e9f97ce4cb141aa9ca8d941d9e58abb556"
