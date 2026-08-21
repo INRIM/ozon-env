@@ -1516,6 +1516,11 @@ class OzonOrm:
     @classmethod
     def step_fields(cls) -> dict:
         return {mod.mm.step_actions}
+    
+    @classmethod
+    def step_field(cls, name: str) -> dict | None:
+        s_fields =  {mod.mm.step_actions}
+        return s_fields.get(name)
 
 """
         async with aiofiles.open(
