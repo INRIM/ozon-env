@@ -1513,6 +1513,10 @@ class OzonOrm:
     def file_fields(cls) -> dict:
         return {mod.mm.file_fields}
 
+    @classmethod
+    def step_fields(cls) -> dict:
+        return {mod.mm.step_actions}
+
 """
         async with aiofiles.open(
             f"{self.models_path}/{mod.name}.py", "a+", encoding="utf-8"

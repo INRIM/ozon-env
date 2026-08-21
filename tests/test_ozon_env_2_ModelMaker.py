@@ -396,3 +396,87 @@ def test_basic_model_field_rule_fallback_defaults():
     assert BasicModel.get_restricted_fields() == []
     assert BasicModel.get_field_rules() == {}
     assert BasicModel.get_field_rules_conditions() == {}
+
+
+def _supervised_todo(key):
+    return {
+        "type": "fieldset",
+        "key": key,
+        "properties": {
+            "rec_name": "supervised_todo",
+            "action_type": "task",
+            "admin": "true",
+        },
+        "components": [
+            {
+                "type": "button",
+                "key": f"btn_{key}",
+                "input": True,
+            },
+            {
+                "type": "checkbox",
+                "key": f"todo_{key}",
+                "label": "Todo",
+                "input": True,
+                "defaultValue": False,
+            },
+        ],
+    }
+
+
+def test_supervised_todo_builds_step_actions_and_checkbox_fields():
+    schema = {
+        "components": [
+            _supervised_todo("approval"),
+            _supervised_todo("verification"),
+        ]
+    }
+    mm = ModelMaker("test_step_actions", tz="Europe/Rome")
+    model = mm.from_formio(schema)
+
+    assert mm.step_actions == {
+        "todo_supervised_approval": {
+            "rec_name": "supervised_todo",
+            "action_type": "task",
+            "admin": "true",
+            "url_action": "/step/approval",
+        },
+        "todo_supervised_verification": {
+            "rec_name": "supervised_todo",
+            "action_type": "task",
+            "admin": "true",
+            "url_action": "/step/verification",
+        },
+    }
+    assert "todo_approval" in model.model_fields
+    assert "todo_verification" in model.model_fields
+    assert "btn_approval" not in model.model_fields
+
+
+def test_regular_fieldset_does_not_build_step_action():
+    schema = {
+        "components": [
+            {
+                "type": "fieldset",
+                "key": "ordinary",
+                "properties": {"rec_name": "ordinary"},
+                "components": [],
+            }
+        ]
+    }
+    mm = ModelMaker("test_regular_fieldset", tz="Europe/Rome")
+    mm.from_formio(schema)
+
+    assert mm.step_actions == {}
+
+
+def test_step_field_uses_overridden_step_fields():
+    class StepModel(BasicModel):
+        @classmethod
+        def step_fields(cls) -> dict:
+            return {"todo_supervised_approval": {"url_action": "/step/approval"}}
+
+    assert StepModel.step_field("todo_supervised_approval") == {
+        "url_action": "/step/approval"
+    }
+    assert StepModel.step_field("missing") is None

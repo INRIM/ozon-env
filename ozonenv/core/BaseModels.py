@@ -212,6 +212,14 @@ class MainModel(BaseModel):
     _file_dump_upload_folder: str = PrivateAttr(default="")
 
     @classmethod
+    def step_fields(cls) -> dict:
+        return {}
+
+    @classmethod
+    def step_field(cls, name: str) -> dict | None:
+        return cls.step_fields().get(name)
+
+    @classmethod
     def str_name(cls, *args, **kwargs):
         return cls.model_json_schema(*args, **kwargs).get("title", "").lower()
 

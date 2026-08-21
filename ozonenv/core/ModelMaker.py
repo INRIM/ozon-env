@@ -751,7 +751,7 @@ class BaseModelMaker:
             "well",
             "htmlelement",
         ]
-        self.layoyt_components = ["tabs", "columns", "panel"]
+        self.layoyt_components = ["tabs", "columns", "panel", "fieldset"]
         self.no_clone_field_type = ["file"]
         self.no_clone_field_keys = ["rec_name"]
         self.computed_fields = {}
@@ -804,6 +804,7 @@ class BaseModelMaker:
         self.realted_fields_logic = {}
         self.tranform_data_value = {}
         self.file_fields = {}
+        self.step_actions = {}
         self.fields_limit_value = {}
         self.default_sort_str = "list_order:desc,"
         self.schema_object = None
@@ -1316,6 +1317,25 @@ class FormioModelMaker(BaseModelMaker):
                 self.compute_component_field(component.copy())
             elif component.get("type") in self.layoyt_components:
                 self.eval_component(component.copy())
+
+    def eval_fieldset(self, fieldset):
+        properties = fieldset.get("properties", {})
+        if not isinstance(properties, dict):
+            return
+        if properties.get("rec_name") != "supervised_todo":
+            return
+
+        key = fieldset.get("key")
+        if not isinstance(key, str) or not key:
+            logger.warning("supervised_todo senza key: componente scartato")
+            return
+
+        step_properties = copy.deepcopy(properties)
+        step_properties["url_action"] = f"/step/{key}"
+        self.step_actions[f"todo_supervised_{key}"] = step_properties
+
+        for component in fieldset.get("components", []):
+            self._scan(component)
 
     def eval_tabs(self, tabs):
         for tab in tabs.get("components", []):
