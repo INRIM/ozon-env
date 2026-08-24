@@ -439,18 +439,53 @@ def test_supervised_todo_builds_step_actions_and_checkbox_fields():
             "rec_name": "supervised_todo",
             "action_type": "task",
             "admin": "true",
-            "url_action": "/step/approval",
+            "url_action": "/step/test_step_actions/approval",
+            "checkbox_field": "todo_approval",
         },
         "todo_supervised_verification": {
             "rec_name": "supervised_todo",
             "action_type": "task",
             "admin": "true",
-            "url_action": "/step/verification",
+            "url_action": "/step/test_step_actions/verification",
+            "checkbox_field": "todo_verification",
         },
     }
     assert "todo_approval" in model.model_fields
     assert "todo_verification" in model.model_fields
     assert "btn_approval" not in model.model_fields
+
+
+def test_supervised_todo_checkbox_field_read_from_schema():
+    """Le palette ufficiali (formio-builder-config.ts, builder.html)
+    spediscono il checkbox con key "todo", NON `todo_<fieldset key>`:
+    la key va letta dal componente, non ricostruita per convenzione."""
+    schema = {
+        "components": [
+            {
+                "type": "fieldset",
+                "key": "supervised_todo_dhcp",
+                "properties": {
+                    "rec_name": "supervised_todo",
+                    "action_type": "task",
+                },
+                "components": [
+                    {
+                        "type": "checkbox",
+                        "key": "todo",
+                        "label": "Todo",
+                        "input": True,
+                    }
+                ],
+            }
+        ]
+    }
+    mm = ModelMaker("dhcp_request", tz="Europe/Rome")
+    model = mm.from_formio(schema)
+
+    step = mm.step_actions["todo_supervised_supervised_todo_dhcp"]
+    assert step["checkbox_field"] == "todo"
+    assert step["url_action"] == "/step/dhcp_request/supervised_todo_dhcp"
+    assert "todo" in model.model_fields
 
 
 def test_regular_fieldset_does_not_build_step_action():

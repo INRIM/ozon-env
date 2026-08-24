@@ -1331,7 +1331,22 @@ class FormioModelMaker(BaseModelMaker):
             return
 
         step_properties = copy.deepcopy(properties)
-        step_properties["url_action"] = f"/step/{key}"
+        step_properties["url_action"] = f"/step/{self.model_name}/{key}"
+        # Il checkbox che segna lo step come fatto e' un componente del
+        # fieldset: la sua key la decide chi disegna il form (le palette
+        # ufficiali usano "todo"), quindi va letta dallo schema. Ricavarla
+        # per convenzione lato server significa indovinare.
+        checkbox_field = ""
+        for component in fieldset.get("components", []):
+            if component.get("type") == "checkbox" and component.get("key"):
+                checkbox_field = component["key"]
+                break
+        if not checkbox_field:
+            logger.warning(
+                f"supervised_todo '{key}' senza checkbox: "
+                f"lo step non e' completabile"
+            )
+        step_properties["checkbox_field"] = checkbox_field
         self.step_actions[f"todo_supervised_{key}"] = step_properties
 
         for component in fieldset.get("components", []):
