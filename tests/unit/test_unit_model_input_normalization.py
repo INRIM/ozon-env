@@ -164,3 +164,44 @@ async def test_dynamic_formio_select_accepts_numeric_frontend_value():
     )
 
     assert model.modelr.delivery_channel == "465"
+
+
+class EmptyContainerInput(BasicModel):
+    so: str = ""
+    tags: list = []
+    payload: dict = {}
+    mixed: str | dict = ""
+
+
+def test_empty_containers_on_string_fields_become_empty_string():
+    """Il bottone "Fatto" di supervised_todo gira con
+    showValidations=false: la submission formio arriva non validata e i
+    componenti a valore-oggetto vuoti valgono {} / [], non "". Su un campo
+    solo-str e' il vuoto."""
+    normalized = EmptyContainerInput.normalize_model_fields(
+        {"so": {}, "tags": [], "payload": {}}
+    )
+
+    assert normalized["so"] == ""
+    # I campi che il model dichiara container restano container.
+    assert normalized["tags"] == []
+    assert normalized["payload"] == {}
+    assert EmptyContainerInput(**normalized).so == ""
+
+
+def test_non_empty_container_on_string_field_still_fails_loudly():
+    """Un dict con dentro qualcosa e' un dato da mappare (valueProperty /
+    select_fields), non un vuoto: non va inghiottito."""
+    normalized = EmptyContainerInput.normalize_model_fields(
+        {"so": {"value": "x", "label": "X"}}
+    )
+
+    assert normalized["so"] == {"value": "x", "label": "X"}
+    with pytest.raises(ValidationError):
+        EmptyContainerInput(**normalized)
+
+
+def test_union_with_container_keeps_the_empty_container():
+    normalized = EmptyContainerInput.normalize_model_fields({"mixed": {}})
+
+    assert normalized["mixed"] == {}

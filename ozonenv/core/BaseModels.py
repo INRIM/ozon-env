@@ -569,9 +569,29 @@ class MainModel(BaseModel):
             del model, name, nested_field
             if raw_value is None or isinstance(raw_value, str):
                 return raw_value
-            accepts_string = str in cls._annotation_variants(field.annotation)
+            variants = cls._annotation_variants(field.annotation)
+            accepts_string = str in variants
             if accepts_string and type(raw_value) in (int, float, bool):
                 return str(raw_value)
+            # Un submission formio non validato (es. il bottone "Fatto" di
+            # supervised_todo, che gira con showValidations=false) manda i
+            # componenti a valore-oggetto vuoti come {} / [], non "". Su un
+            # campo che accetta solo str e' il vuoto, non un dato: senza
+            # questo, la validazione pydantic esplode in `_load_data` prima
+            # ancora di arrivare al DB. Un container NON vuoto resta com'e'
+            # e continua a fallire rumorosamente: li' il dato c'e' davvero
+            # e va mappato (vedi `select_fields`/`valueProperty`).
+            if (
+                accepts_string
+                and isinstance(raw_value, (dict, list, tuple))
+                and not raw_value
+                and not any(
+                    get_origin(variant) in (dict, list, tuple)
+                    or variant in (dict, list, tuple)
+                    for variant in variants
+                )
+            ):
+                return ""
             return raw_value
 
         return cls._normalize_model_data(cls, data, _normalize_string)
