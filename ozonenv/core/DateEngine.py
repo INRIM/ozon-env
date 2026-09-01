@@ -187,6 +187,15 @@ class DateEngine:
         return out
 
     def to_ui(self, date_obj, dt_type: str = "datetime") -> str:
+        # Un valore assente arriva fin qui come None: il chiamante
+        # (DataValueService._compute_model_fields) fa
+        # `input_data.get(name, defaultdt)`, e il default scatta solo se la
+        # chiave MANCA — un campo presente ma valorizzato a null passa None.
+        # Capita su dati migrati da versioni precedenti. Senza questo guard
+        # il dereferenziamento di .tzinfo qui sotto alza AttributeError e
+        # fa fallire l'init dei modelli.
+        if date_obj is None:
+            return ""
         if isinstance(date_obj, str):
             return self.format_in_client_tz(date_obj, dt_type)
         elif (

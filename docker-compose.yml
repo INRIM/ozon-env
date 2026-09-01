@@ -1,7 +1,11 @@
 services:
 
   database:
-    image: mongo:latest
+    # Pin allineato a ozon-env-app (database/Dockerfile-mongo). NB: le build
+    # da 8.0.29 / 8.3.x in poi non partono su kernel Linux >= 6.19
+    # (SERVER-121912, Docker Desktop con kernel linuxkit 7.x): li' serve
+    # MONGO_VERSION=8.0.1.
+    image: mongo:${MONGO_VERSION:-8.2.12}
     restart: always
     env_file:
       - ./tests/.env-test
