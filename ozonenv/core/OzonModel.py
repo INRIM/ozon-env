@@ -270,6 +270,10 @@ class OzonMBase:
                 elif k not in res_dict["data_value"]:
                     res_dict["data_value"][k] = v
 
+            # dict/list annidati: tenere il risultato ricorsivo
+            # (con data_value), non sovrascriverlo con il valore originale
+            if isinstance(v, (dict, list)) and k != "data_value":
+                continue
             res_dict[k] = v
 
         return res_dict.copy()
