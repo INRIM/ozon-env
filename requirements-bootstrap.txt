@@ -1,0 +1,13 @@
+# Secure bootstrap for build/test environments (eMudhra / emSign CA incident,
+# advisory 2026-10-20: https://discuss.python.org/t/109576).
+#
+# Install with:
+#   python -m pip install --require-hashes -r requirements-bootstrap.txt
+#
+# Hash pinning keeps the bootstrap safe even if the pip/certifi doing the
+# download still trusts the compromised CA. Hashes cross-checked from PyPI
+# JSON API through two independent network paths.
+pip==26.2.2 \
+    --hash=sha256:fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70
+certifi==2026.10.19 \
+    --hash=sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b

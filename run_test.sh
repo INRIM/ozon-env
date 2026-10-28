@@ -26,6 +26,9 @@ fi
 echo "install project dependencies"
 poetry install --with dev --sync
 
+echo "check CA security (eMudhra / emSign advisory)"
+poetry run python -I scripts/check_ca_security.py
+
 echo "set test env"
 export APP_CODE="${APP_CODE:-test}"
 export STACK="${STACK:-test}"
@@ -40,7 +43,7 @@ echo "reset compose stack"
 docker compose down -v --remove-orphans || true
 
 echo "make compose"
-docker compose up -d --force-recreate
+docker compose up -d --force-recreate --pull always
 
 echo "check code"
 poetry run black ozonenv/**/*.py
