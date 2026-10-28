@@ -238,12 +238,15 @@ class OzonMBase:
         for k, v in dict_data.items():
             if isinstance(v, dict):  # For DICT
                 if not k == "data_value":
-                    res_dict[k] = self._make_from_dict(v, data_value)
+                    child_dv = data_value.get(k)
+                    res_dict[k] = self._make_from_dict(
+                        v, child_dv if isinstance(child_dv, dict) else None
+                    )
             elif isinstance(v, list):  # For LIST
                 res_dict[k] = []
                 for i in v:
                     if isinstance(i, dict):
-                        res_dict[k].append(self._make_from_dict(i, data_value))
+                        res_dict[k].append(self._make_from_dict(i))
                     else:
                         res_dict[k].append(i)
             if "data_value" not in res_dict or not isinstance(
